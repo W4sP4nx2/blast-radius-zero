@@ -6,18 +6,18 @@ Audit date: **4 November 2026**. This compares the supplied checklist with the r
 
 | Area | Current evidence | Missing before submission | Priority |
 | --- | --- | --- | --- |
-| Repository | Local Git repository, application source, dependency locks, seven core documents, four role templates, this checklist | Public GitHub remote, pushed commit, public repository URL | P0 |
+| Repository | Application source, dependency locks, architecture, requirements, and contributor docs published | Published at [W4sP4nx2/blast-radius-zero](https://github.com/W4sP4nx2/blast-radius-zero) | Done |
 | Vultr VM | Ubuntu/Linux deployment configuration is checked in | VM access, actual instance details, Docker daemon and built images on that VM | P0 |
 | HTTPS | Caddy config separates app 443 and demo-form 8443 | Real DNS records, reachable public URL, valid certificates, Vultr firewall verification | P0 |
 | Redis | Bounded state/blob storage, counters, approval transactions; local tests use fakeredis | Real Redis/HTTP smoke passed locally; target persistence/restart and memory-pressure checks remain | P0 |
-| Python containment | Harness implements requested flags, monitored deadline, collection and cleanup | 12 real local Python checks passed; repeat and retain evidence on Vultr, including host fault recovery | P0 |
+| Python containment | 12 real Python Docker checks passed locally and on Ubuntu CI | Repeat and retain evidence on Vultr, including host fault recovery | P0 |
 | Browser containment | Packaged Squid, isolated networks, host forwarding/INPUT rules, IPv6 denial, live rule verifier and Chromium launch probe | Proxy build blocked by local Docker storage I/O fault; build browser/proxy images on healthy Linux, install/verify rules and run bypass/sentinel tests | P0 |
 | AI | Vultr adapter, catalog validation, bounded calls/retries, rate limits and circuit breaker; provider behavior tested with stubs | Inference subscription key and model IDs, live text/vision run, provider-reported usage evidence | P0 |
 | Approval | Session/CSRF, immutable field/revision/destination binding, expiring permit and idempotent receipt; local tests pass | Real two-browser-stage demonstration through dedicated HTTPS listener | P0 |
 | Dashboard | Next.js build/typecheck and desktop/mobile UI contract checks pass | Public deployment smoke test with real logs, screenshots, artifacts and receipts | P0 |
-| CI | GitHub Actions workflow exists for local-style checks and Linux Python-container probes | Push it and retain an actual CI run; browser/host-policy release checks are separate | P1 |
+| CI | [Manual GitHub Actions run passed](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) with 100 application tests, 12 Python Docker checks, and frontend build/typecheck | Browser and host-policy release checks are separate | Done |
 | Team | W4sP4n (@W4sP4nx2) confirmed as sole contributor across four roles | Link published commits to the role pages | P1 |
-| Submission | Architecture, rubric mapping, test matrix and recording scripts exist | Recorded video, cover image, final project description/tags and completed LabLab submission | P1 |
+| Submission | Architecture, rubric mapping, test matrix, and a [60-second verification walkthrough](https://github.com/W4sP4nx2/blast-radius-zero/releases/download/verification-2026-11-04/brz-verification-60s.mp4) | Public Vultr URL, target-host demo recording, cover image, final project description/tags and completed LabLab submission | P1 |
 | Scaling | Future design documented | Distributed workers, managed Valkey, shared object storage and centralized monitoring are future work, not MVP release gates | Future |
 
 Local results and environment are recorded in [verification/local-2026-11-04.md](verification/local-2026-11-04.md). Full runtime matrix: [TESTING.md](TESTING.md).
@@ -52,12 +52,12 @@ Local storage blocker: Docker hit filesystem I/O errors while building the proxy
 | ID | Scenario | Expected observation | Current evidence / next step |
 | --- | --- | --- | --- |
 | T01 | CSV preset, sample then uploaded CSV | Correct statistics, progress before completion, downloadable JSON/CSV | Real sample/uploaded CSV container checks and HTTP/SSE/artifact smoke passed locally; repeat on Vultr |
-| T02 | Python HTTPS and direct-IP connection | Both fail under inspected network mode `none` | Real local Docker checks passed; target Vultr verification pending |
-| T03 | Infinite loop | Timeout outcome near 10s; container removed | Real local Docker check passed; target Vultr verification pending |
-| T04 | 600 MiB allocation | Allocation failure or corroborated OOM; bounded host allocation | Real local Docker check passed; target Vultr verification pending |
-| T05 | Host-secret sentinel and privilege probe | Sentinel/key absent, non-root UID, NoNewPrivs=1 | Real local runtime privilege/secret check passed; repeat on Vultr |
-| T06 | Rootfs write, temporary write/reset and tmpfs overflow | Rootfs denied; scratch works, is bounded and does not persist | Real local Docker checks passed; target Vultr verification pending |
-| T07 | Fork/PID and output flood | PID creation or output stops within configured limits; cleanup completes | Real local Docker checks passed; target Vultr verification pending |
+| T02 | Python HTTPS and direct-IP connection | Both fail under inspected network mode `none` | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
+| T03 | Infinite loop | Timeout outcome near 10s; container removed | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
+| T04 | 600 MiB allocation | Allocation failure or corroborated OOM; bounded host allocation | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
+| T05 | Host-secret sentinel and privilege probe | Sentinel/key absent, non-root UID, NoNewPrivs=1 | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
+| T06 | Rootfs write, temporary write/reset and tmpfs overflow | Rootfs denied; scratch works, is bounded and does not persist | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
+| T07 | Fork/PID and output flood | PID creation or output stops within configured limits; cleanup completes | Passed locally and in [Ubuntu CI](TESTING.md#ubuntu-ci-containment-evidence). Repeat on Vultr |
 | T08 | HN research | Three actual headline entries, absolute source URLs, timestamped screenshot evidence; no invented article text | UI evidence components tested; real browser test pending Linux setup |
 | T09 | Vultr metadata | Trusted proxy denial; zero metadata body/screenshot publication | Probe supplied; pending target host |
 | T10 | Private addresses, host IP, wrong ports, direct sockets/DNS | No protected or direct-egress connection | Target-host release matrix; controlled sentinel evidence required |
@@ -113,6 +113,6 @@ This short security clip supplements the main submission. It does not replace pr
 
 ## 7. Submission wording
 
-> We verified the Python sandbox with 12 real Docker checks and tested AI orchestration with a local stub provider. A real CSV preset streamed output, produced downloadable artifacts, and made zero provider requests. Local Docker storage I/O errors blocked the browser proxy build. The browser containment matrix and live Vultr Inference still require target-host verification.
+> Twelve real Python Docker containment checks passed both locally and on Ubuntu GitHub Actions. The application suite passed 100 tests, including AI orchestration with a stub provider. A real local CSV preset streamed output, produced downloadable artifacts, and made zero provider requests. Local Docker storage I/O errors blocked the browser proxy build. The browser containment matrix and live Vultr Inference still require target-host verification.
 
-Attach the GitHub Actions run after the Python containment step succeeds. Keep the browser and live inference entries pending until those checks run. If recording before deployment, show the retained local evidence and label screenshots and fixture runs with their actual environments.
+Supplement the deployed demo with [GitHub Actions run 41734667690](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) and the [60-second verification walkthrough MP4](https://github.com/W4sP4nx2/blast-radius-zero/releases/download/verification-2026-11-04/brz-verification-60s.mp4). The walkthrough shows retained evidence. Record the deployed app and live inference for the official submission.

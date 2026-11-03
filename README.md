@@ -115,7 +115,7 @@ For interactive development, run Redis, set `REDIS_URL` and `APP_ORIGIN=http://l
 
 ## Known Local Constraints
 
-The local browser proxy build stopped with Docker storage I/O errors when the host had about 191 MiB free. All 100 application tests passed, including the 21 AI and coordinator tests captured in the focused rerun. Twelve real Python Docker checks also passed locally. The Ubuntu workflow runs the application tests and Python containment checks. CI results, full browser containment, and live Vultr Inference are pending. [Focused test output](verification/ai-focused-2026-11-04.txt) · [Verification status](TESTING.md#verification-status) · [GitHub Actions workflow](.github/workflows/ci.yml)
+The local browser proxy build stopped with Docker storage I/O errors when the host had about 191 MiB free. All 100 application tests passed, including the 21 AI and coordinator tests captured in the focused rerun. Twelve real Python Docker checks passed locally and on Ubuntu CI. Full browser containment and live Vultr Inference remain pending on the target host. [Focused test output](verification/ai-focused-2026-11-04.txt) · [Verification status](TESTING.md#verification-status) · [Passing GitHub Actions run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690)
 
 ## Lightweight inference controls
 
@@ -144,6 +144,8 @@ The application exposes provider-reported usage for visibility. Monitor actual c
 The response is `202` with a `task_id`. Fetch status at `/api/tasks/{id}` and real SSE events at `/api/tasks/{id}/events`. CSV uploads use `/api/uploads`; task cancellation, artifact downloads, and session-bound approval have dedicated endpoints. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the workflow and contracts.
 
 ## Demonstration sequence
+
+[60-second verification walkthrough](https://github.com/W4sP4nx2/blast-radius-zero/releases/download/verification-2026-11-04/brz-verification-60s.mp4) shows the retained local and Ubuntu CI results. Record the target-host demonstration below after deployment.
 
 1. Run CSV analysis and show logs arriving before completion plus a generated artifact.
 2. Attempt an external Python request and show the observed denial under network mode `none`.

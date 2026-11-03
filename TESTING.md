@@ -9,13 +9,13 @@ This file distinguishes **Expected** behavior from **Observed** results. A passi
 | Backend application suite | ✅ **Passed (100 tests)** | [Local report, 4 Nov 2026](verification/local-2026-11-04.md#prompt-and-schema-regression) |
 | Prompt and plan validation | ✅ **Passed (Local stubs)** | [Verbose test log](verification/ai-focused-2026-11-04.txt) covers malformed and truncated JSON, the UTF-8 boundary, and bounded recovery. Live model output awaits a Vultr run |
 | AI orchestration and circuit breaker | ✅ **Passed (21 focused tests with local stubs and doubles)** | [Verbose test log](verification/ai-focused-2026-11-04.txt) covers the two-recovery and five-request limits, circuit opening after five provider failures, immediate second-probe rejection, and preset dispatch without inference |
-| Python sandbox containment | ✅ **Passed (12 local Docker checks)** | [Local report](verification/local-2026-11-04.md), Docker Desktop Linux/arm64, 4 Nov 2026. Ubuntu CI and Vultr results are pending |
+| Python sandbox containment | ✅ **Passed (12 local Docker checks)** and ✅ **Passed (12 Ubuntu CI Docker checks)** | Docker Desktop Linux/arm64 and GitHub-hosted Ubuntu 24.04 x64, 4 Nov 2026. Vultr results are pending. [Local report](verification/local-2026-11-04.md) · [Ubuntu CI evidence](#ubuntu-ci-containment-evidence) |
 | Browser proxy and host firewall | ⚠️ **Pending** | Local Docker storage I/O blocker. Awaiting target VM or CI runner configured for the browser matrix. [Local report](verification/local-2026-11-04.md) |
 | Frontend production build and typecheck | Passed locally | [Local report](verification/local-2026-11-04.md); Node 24.22.2 and Linux frontend container |
 | Frontend browser contracts | Passed desktop/mobile, SSE handling, escaping, fallback, explicit approval and receipt display | Chromium with intercepted test API fixtures; not containment evidence |
 | Vultr deployment and HTTPS | ⚠️ **Pending** | Requires credentials, DNS, and a target VM |
 | Live Vultr Inference | ⚠️ **Pending** | Requires a configured inference subscription key and model access |
-| GitHub Actions | ⚠️ **Pending** | [CI workflow](.github/workflows/ci.yml) runs the application and Python Docker suite. Browser/firewall and live inference use separate release checks |
+| GitHub Actions | ✅ **Passed** | 100 application tests, 12 real Python Docker tests, and frontend typecheck/build passed. Browser integration skipped. [Run 41734667690](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) · [Log excerpt](verification/github-actions-41734667690.txt) · [Screenshot](verification/github-actions-41734667690.jpg) |
 
 Never replace these entries with “passed” based only on source inspection. When updating a row, link a sanitized report or CI run and record its environment and date.
 
@@ -35,6 +35,21 @@ Never replace these entries with “passed” based only on source inspection. W
 ## Python containment
 
 Exact platform error wording is not an acceptance criterion. Check runtime configuration and the resulting behavior together.
+
+### Ubuntu CI containment evidence
+
+The manually dispatched workflow tested commit `c5264089f801fd8c92fd0f26ee8acbbf844780d8` on Ubuntu 24.04 x64 with Python 3.13.17 on 4 November 2026 (Asia/Bangkok). The `BRZ_INTEGRATION=1` step passed 12 Python checks and skipped the browser integration. [Passing run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) · [Backend job](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690/job/126260648362) · [Retained log excerpt](verification/github-actions-41734667690.txt)
+
+| Scenario | Observed on the Ubuntu runner |
+| --- | --- |
+| T02 · External networking | DNS-backed HTTPS and direct-IP connection tests passed |
+| T03 · Deadline | Busy loop timed out and the container was removed |
+| T04 · Memory | The 600 MiB allocation probe failed within the limit. The check requires Docker state corroboration if the result is classified as OOM |
+| T05 · Secrets and privilege | The host sentinel and provider key were absent. Non-root and `NoNewPrivs` probes passed |
+| T06 · Filesystem and scratch | Root write, scratch isolation and tmpfs limit probes passed |
+| T07 · PID and output limits | PID limit and output-flood probes passed |
+
+### Detailed scenarios
 
 | Test | Payload / action | Expected result | Observed | Environment / date / evidence |
 | --- | --- | --- | --- | --- |
