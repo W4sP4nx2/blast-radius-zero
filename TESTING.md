@@ -9,13 +9,13 @@ This file distinguishes **Expected** behavior from **Observed** results. A passi
 | Backend application suite | ✅ **Passed (100 tests)** | [Local report, 4 Nov 2026](verification/local-2026-11-04.md#prompt-and-schema-regression) |
 | Prompt and plan validation | ✅ **Passed (Local stubs)** | [Verbose test log](verification/ai-focused-2026-11-04.txt) covers malformed and truncated JSON, the UTF-8 boundary, and bounded recovery. Live model output awaits a Vultr run |
 | AI orchestration and circuit breaker | ✅ **Passed (21 focused tests with local stubs and doubles)** | [Verbose test log](verification/ai-focused-2026-11-04.txt) covers the two-recovery and five-request limits, circuit opening after five provider failures, immediate second-probe rejection, and preset dispatch without inference |
-| Python sandbox containment | ✅ **Passed (12 local Docker checks)** and ✅ **Passed (12 Ubuntu CI Docker checks)** | Docker Desktop Linux/arm64 and GitHub-hosted Ubuntu 24.04 x64, 4 Nov 2026. Vultr results are pending. [Local report](verification/local-2026-11-04.md) · [Ubuntu CI evidence](#ubuntu-ci-containment-evidence) |
+| Python sandbox containment | ✅ **Verified via GitHub Actions CI (run #5)** | All 12 Python Docker checks passed with zero skips on a clean Ubuntu 24.04 runner, bypassing local storage limits. Vultr results are pending. [Ubuntu CI evidence](#ubuntu-ci-containment-evidence) · [Local report](verification/local-2026-11-04.md) |
 | Browser proxy and host firewall | ⚠️ **Pending** | Local Docker storage I/O blocker. Awaiting target VM or CI runner configured for the browser matrix. [Local report](verification/local-2026-11-04.md) |
 | Frontend production build and typecheck | Passed locally | [Local report](verification/local-2026-11-04.md); Node 24.22.2 and Linux frontend container |
 | Frontend browser contracts | Passed desktop/mobile, SSE handling, escaping, fallback, explicit approval and receipt display | Chromium with intercepted test API fixtures; not containment evidence |
 | Vultr deployment and HTTPS | ⚠️ **Pending** | Requires credentials, DNS, and a target VM |
 | Live Vultr Inference | ⚠️ **Pending** | Requires a configured inference subscription key and model access |
-| GitHub Actions | ✅ **Passed** | 100 application tests, 12 real Python Docker tests, and frontend typecheck/build passed. Browser integration skipped. [Run 41734667690](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) · [Log excerpt](verification/github-actions-41734667690.txt) · [Screenshot](verification/github-actions-41734667690.jpg) |
+| GitHub Actions | ✅ **Passed** | 100 application tests and 12 real Python Docker tests passed with zero skips. Frontend typecheck and build passed. Browser integration has a separate target-host scope. [Run #5](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41736343238) |
 
 Never replace these entries with “passed” based only on source inspection. When updating a row, link a sanitized report or CI run and record its environment and date.
 
@@ -38,7 +38,9 @@ Exact platform error wording is not an acceptance criterion. Check runtime confi
 
 ### Ubuntu CI containment evidence
 
-The manually dispatched workflow tested commit `c5264089f801fd8c92fd0f26ee8acbbf844780d8` on Ubuntu 24.04 x64 with Python 3.13.17 on 4 November 2026 (Asia/Bangkok). The `BRZ_INTEGRATION=1` step passed 12 Python checks and skipped the browser integration. [Passing run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690) · [Backend job](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41734667690/job/126260648362) · [Retained log excerpt](verification/github-actions-41734667690.txt)
+Run #5 tested commit `0c56b2a80504f777eef9550c990eabc34c3d73a1` on Ubuntu 24.04 x64 with Python 3.13.17 on 4 November 2026 (Asia/Bangkok). The Python containment job selected 12 cases and passed all 12. The other 101 cases, including the separate browser integration, were deselected. The runner reported 86 GiB available before the build. [Passing run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41736343238) · [Python Docker job](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41736343238/job/126266401221)
+
+Earlier run #2 passed the same 12 Python cases and reported one browser skip under the old test selection. [Archived log excerpt](verification/github-actions-41734667690.txt) · [Screenshot](verification/github-actions-41734667690.jpg)
 
 | Scenario | Observed on the Ubuntu runner |
 | --- | --- |
