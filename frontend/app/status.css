@@ -1,0 +1,5 @@
+.ai-availability{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:-7px 0 17px 32px;font:10px var(--mono);color:var(--green)}
+.ai-reason{color:var(--muted);font-size:9px}
+.result-summary a{display:block;color:var(--green);font:10px var(--mono);overflow-wrap:anywhere;margin-top:6px}
+.result-summary code{overflow-wrap:anywhere}
+@media(max-width:650px){.ai-availability{margin-left:24px;font-size:8px}.ai-reason{font-size:8px;max-width:100%}}

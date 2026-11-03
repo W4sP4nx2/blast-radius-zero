@@ -1,0 +1,133 @@
+name: blast-radius-zero
+
+x-backend: &backend
+  image: brz-backend:local
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  env_file: .env
+  environment: &backend-env
+    REDIS_URL: redis://redis:6379/0
+    APP_ORIGIN: https://${APP_DOMAIN}
+    DEMO_URL: https://${DEMO_DOMAIN}:8443
+    PYTHON_IMAGE: brz-python-sandbox:local
+    BROWSER_IMAGE: brz-browser-sandbox:local
+    PROXY_IMAGE: brz-egress-proxy:local
+  networks: [app]
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp:size=64m,noexec,nosuid,nodev]
+  mem_limit: 512m
+  pids_limit: 128
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, 'yes', --appendfsync, everysec, --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes: [redis-data:/data]
+    networks: [app]
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 64
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *backend
+    command: [uvicorn, main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --proxy-headers, --forwarded-allow-ips, '172.29.0.1']
+    ports: ['127.0.0.1:8000:8000']
+
+  worker:
+    <<: *backend
+    # The coordinator is trusted and daemon-privileged. No public API has this mount.
+    user: '0:0'
+    command: [python, -m, brz.worker]
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+
+  form:
+    <<: *backend
+    command: [uvicorn, brz.form_service:app, --host, 0.0.0.0, --port, '8001', --workers, '1']
+    ports: ['127.0.0.1:8001:8001']
+    environment:
+      <<: *backend-env
+      AI_ENABLED: 'false'
+      VULTR_API_KEY: ''
+
+  frontend:
+    image: brz-frontend:local
+    build:
+      context: ./frontend
+      args:
+        API_INTERNAL_URL: http://api:8000
+    environment:
+      API_INTERNAL_URL: http://api:8000
+      HOSTNAME: 0.0.0.0
+      PORT: '3000'
+    ports: ['127.0.0.1:3000:3000']
+    networks: [app]
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 128
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp:size=64m,noexec,nosuid,nodev]
+
+  caddy:
+    image: caddy:2.10-alpine
+    network_mode: host
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      DEMO_DOMAIN: ${DEMO_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 64
+
+  python-image:
+    profiles: [images]
+    image: brz-python-sandbox:local
+    build: ./backend/python_sandbox
+    entrypoint: [/bin/true]
+
+  browser-image:
+    profiles: [images]
+    image: brz-browser-sandbox:local
+    build: ./backend/browser_sandbox
+    entrypoint: [/bin/true]
+
+  proxy-image:
+    profiles: [images]
+    image: brz-egress-proxy:local
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: deploy/squid/Dockerfile
+      args:
+        SQUID_VERSION: ${SQUID_VERSION:-6.14-0ubuntu0.24.04.5}
+    entrypoint: [/bin/true]
+
+networks:
+  app:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:

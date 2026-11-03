@@ -1,0 +1,40 @@
+Blast Radius Zero focused AI and coordinator tests
+Recorded 4 November 2026 (Asia/Bangkok)
+Local macOS arm64, Python 3.14.6 in a temporary virtual environment.
+Provider stubs, fakeredis and runner doubles.
+Reproduce from the repository root with the development dependencies installed:
+PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_ai.py backend/tests/test_worker.py -v
+The captured run used the equivalent temporary interpreter. Local paths are redacted.
+
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.2.0, pluggy-1.7.0 -- <temporary-directory>/venv/bin/python
+cachedir: .pytest_cache
+rootdir: <repository>
+configfile: pytest.ini
+plugins: anyio-4.16.0, asyncio-1.4.1.post1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 21 items
+
+backend/tests/test_ai.py::test_code_ceiling_usage_and_no_hidden_retries PASSED [  4%]
+backend/tests/test_ai.py::test_invalid_json_uses_only_two_recoveries PASSED [  9%]
+backend/tests/test_ai.py::test_generated_code_is_repaired_at_utf8_byte_boundary PASSED [ 14%]
+backend/tests/test_ai.py::test_truncated_json_is_retried_boundedly PASSED [ 19%]
+backend/tests/test_ai.py::test_five_failures_open_circuit_and_only_one_probe PASSED [ 23%]
+backend/tests/test_ai.py::test_invalid_credentials_disable_without_retry PASSED [ 28%]
+backend/tests/test_ai.py::test_provider_retry_after_does_not_count_as_outage PASSED [ 33%]
+backend/tests/test_ai.py::test_rate_limit_is_separate_from_provider_health PASSED [ 38%]
+backend/tests/test_ai.py::test_five_call_cap_does_not_make_sixth_http_request PASSED [ 42%]
+backend/tests/test_ai.py::test_catalog_is_counted_and_unknown_models_fail_closed PASSED [ 47%]
+backend/tests/test_ai.py::test_disabled_ai_makes_no_http_requests PASSED [ 52%]
+backend/tests/test_worker.py::test_preset_uses_sandbox_but_zero_model_calls PASSED [ 57%]
+backend/tests/test_worker.py::test_policy_or_resource_failure_never_repairs[blocked] PASSED [ 61%]
+backend/tests/test_worker.py::test_policy_or_resource_failure_never_repairs[timed_out] PASSED [ 66%]
+backend/tests/test_worker.py::test_policy_or_resource_failure_never_repairs[oom_killed] PASSED [ 71%]
+backend/tests/test_worker.py::test_policy_or_resource_failure_never_repairs[output_limit] PASSED [ 76%]
+backend/tests/test_worker.py::test_policy_or_resource_failure_never_repairs[infrastructure_error] PASSED [ 80%]
+backend/tests/test_worker.py::test_code_error_has_at_most_two_additional_attempts PASSED [ 85%]
+backend/tests/test_worker.py::test_cancelled_queue_item_never_launches_container PASSED [ 90%]
+backend/tests/test_worker.py::test_browser_receipt_is_not_trusted_without_form_service_record PASSED [ 95%]
+backend/tests/test_worker.py::test_preparation_creates_pending_action_without_submission PASSED [100%]
+
+============================== 21 passed in 1.39s ==============================

@@ -1,0 +1,25 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        X-Frame-Options DENY
+    }
+    @api path /api/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}
+
+# Dedicated listener: no API/admin routes even with spoofed Host or SNI.
+https://{$DEMO_DOMAIN}:8443 {
+    header X-Content-Type-Options nosniff
+    reverse_proxy 127.0.0.1:8001
+}
