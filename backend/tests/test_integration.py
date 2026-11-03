@@ -125,6 +125,7 @@ def test_cancellation_removes_running_container(runner):
     assert not runner._docker().containers.list(all=True, filters={'label': 'brz.role=code'})
 
 
+@pytest.mark.browser_integration
 def test_browser_metadata_denial_and_real_capture(runner):
     if os.getenv("BRZ_BROWSER_INTEGRATION") != "1":
         pytest.skip("Set BRZ_BROWSER_INTEGRATION=1 after target-host firewall/DNS/TLS setup")

@@ -127,7 +127,7 @@ Provider dashboards can corroborate usage, but aggregate billing is not sufficie
 
 Run unit/API checks and the frontend production build first. On an isolated Linux Docker host, build the sandbox images, install the checked-in destination policy, run `deploy/preflight.sh`, and execute the containment matrix. Repeat target-host checks after changing Docker, the kernel, firewall policy, images, or deployment configuration.
 
-CI runs fixed regression probes on ephemeral Linux runners without production credentials. Do not run untrusted pull-request code on the production sandbox host. Live Vultr Inference and public-domain smoke checks require separate deployment configuration and must not be implied by a passing offline CI run.
+CI runs application validation and Python Docker containment independently on ephemeral Ubuntu runners. PRs targeting `main` or `master` and pushes to either branch trigger both jobs, including documentation-only changes. The Python Docker job selects the Python containment cases. Any skipped or expected-failure case in either selected pytest suite makes its job fail. The browser marker selects the separate target-host browser check, which needs firewall, DNS, and TLS setup. Live Vultr Inference and public-domain smoke checks also require target-host verification.
 
 ### Commands
 
@@ -138,13 +138,14 @@ PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -m 'not integration'
 # Focused provider and coordinator tests. Uses local stubs and doubles.
 PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_ai.py backend/tests/test_worker.py -v
 
-# Isolated Linux Docker host. Build only the Python image for this suite.
+# Isolated Linux Docker host. This is the Python containment scope used in CI.
 docker build -t brz-python-sandbox:local backend/python_sandbox
-PYTHONPATH=backend BRZ_INTEGRATION=1 .venv/bin/python -m pytest backend/tests -m integration -q
+PYTHONPATH=backend BRZ_INTEGRATION=1 .venv/bin/python -m pytest backend/tests \
+  -m 'integration and not browser_integration' --fail-on-skip -v
 
-# Include actual browser capture/metadata probes only after firewall, DNS and TLS setup.
+# Run the browser capture and metadata probes after firewall, DNS and TLS setup.
 PYTHONPATH=backend BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
-  .venv/bin/python -m pytest backend/tests -m integration -q
+  .venv/bin/python -m pytest backend/tests -m browser_integration --fail-on-skip -v
 ```
 
 The suite is the checked-in automation subset. The full browser DNS-rebinding, controlled-sentinel, proxy-death, host-firewall fault and live-inference matrix above still requires a target-host release session. The integration fixture removes BRZ-labelled resources; never run it alongside production jobs.

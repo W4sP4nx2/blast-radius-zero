@@ -1,12 +1,41 @@
-name: containment-checks
+name: Blast Radius Zero CI
 on:
   push:
+    branches: [main, master]
   pull_request:
+    branches: [main, master]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  backend:
+  validate-and-unit:
+    name: Validate & Unit Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r backend/requirements-dev.txt
+      - name: Backend application tests
+        run: PYTHONPATH=backend python -m pytest backend/tests -m 'not integration' --fail-on-skip -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend typecheck and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+  docker-containment:
+    name: Python Docker Containment Integration
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -17,26 +46,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r backend/requirements-dev.txt
-      - name: Backend application tests
-        run: PYTHONPATH=backend pytest backend/tests -m 'not integration' -q
+      - name: Report available disk space
+        run: df -h .
       - name: Build Python sandbox
         run: docker build -t brz-python-sandbox:local backend/python_sandbox
       - name: Python Docker containment (BRZ_INTEGRATION=1)
-        run: PYTHONPATH=backend BRZ_INTEGRATION=1 pytest backend/tests -m integration -v -rs
-        # Ephemeral Linux runner only. No production credentials or host access.
-  frontend:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 8
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+        env:
+          PYTHONPATH: backend
+          BRZ_INTEGRATION: '1'
+        run: python -m pytest backend/tests -m 'integration and not browser_integration' --fail-on-skip -v
