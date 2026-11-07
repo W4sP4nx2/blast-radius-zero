@@ -1,0 +1,28 @@
+[project]
+name = "blast-radius-zero"
+version = "0.1.0"
+description = "Containment-first agentic execution on Vultr"
+requires-python = ">=3.13,<3.14"
+# Direct dependencies stay exactly pinned; uv.lock pins the transitive set.
+# Upgrade deliberately: edit a pin, then run `uv lock` and the test suites.
+dependencies = [
+    "docker==7.2.0",
+    "fastapi==0.162.0",
+    "httpx==0.28.1",
+    "pydantic==2.14.2",
+    "python-multipart==0.0.33",
+    "redis==8.1.0",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "fakeredis==2.40.0",
+    "playwright==1.64.1",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
+]
+
+[tool.uv]
+# The backend runs from source in backend/ (module `brz`); nothing is built or installed.
+package = false

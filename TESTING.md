@@ -134,20 +134,23 @@ CI runs application validation and Python Docker containment independently on ep
 ### Commands
 
 ```bash
+# Install the locked environment once (Python 3.13 from .python-version).
+uv sync --locked
+
 # Local application tests; no Docker containment claim.
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -m 'not integration' -q
+uv run pytest backend/tests -m 'not integration' -q
 
 # Focused provider and coordinator tests. Uses local stubs and doubles.
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_ai.py backend/tests/test_worker.py -v
+uv run pytest backend/tests/test_ai.py backend/tests/test_worker.py -v
 
 # Isolated Linux Docker host. This is the Python containment scope used in CI.
 docker build -t brz-python-sandbox:local backend/python_sandbox
-PYTHONPATH=backend BRZ_INTEGRATION=1 .venv/bin/python -m pytest backend/tests \
+BRZ_INTEGRATION=1 uv run pytest backend/tests \
   -m 'integration and not browser_integration' --fail-on-skip -v
 
 # Run the browser capture and metadata probes after firewall, DNS and TLS setup.
-PYTHONPATH=backend BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
-  .venv/bin/python -m pytest backend/tests -m browser_integration --fail-on-skip -v
+BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
+  uv run pytest backend/tests -m browser_integration --fail-on-skip -v
 ```
 
 The suite is the checked-in automation subset. The full browser DNS-rebinding, controlled-sentinel, proxy-death, host-firewall fault and live-inference matrix above still requires a target-host release session. The integration fixture removes BRZ-labelled resources; never run it alongside production jobs.

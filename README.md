@@ -95,13 +95,15 @@ The commands above are the deployment procedure; target-host execution and outco
 
 ### Local development checks
 
-Backend checks use Python 3.13:
+Backend checks use Python 3.13 (pinned in `.python-version`) and [uv](https://docs.astral.sh/uv/). `pyproject.toml` declares the pinned direct dependencies and `uv.lock` pins the full transitive set; the backend image, CI and local environments all install from that lockfile.
 
 ```bash
-python3.13 -m venv .venv
-.venv/bin/pip install -r backend/requirements-dev.txt
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -m 'not integration'
+uv venv                # creates .venv in the repository root
+uv sync --locked       # installs runtime + dev groups exactly as locked
+uv run pytest backend/tests -m 'not integration'
 ```
+
+To change a dependency, edit its pin in `pyproject.toml`, run `uv lock`, and commit both files. `--locked` makes CI and the image build fail when they disagree.
 
 Frontend checks:
 
@@ -111,13 +113,13 @@ npm ci
 npm run build
 ```
 
-For interactive development, run Redis, set `REDIS_URL` and `APP_ORIGIN=http://localhost:3000`, start the backend from `backend/` using `uvicorn main:app --host 127.0.0.1 --port 8000`, and run `npm run dev` from `frontend/`. The coordinator is a separate process. Full browser containment requires the supported Linux host policy; do not weaken it to make a local preview work.
+For interactive development, run Redis, set `REDIS_URL` and `APP_ORIGIN=http://localhost:3000`, start the backend from `backend/` using `uv run uvicorn main:app --host 127.0.0.1 --port 8000`, and run `npm run dev` from `frontend/`. The coordinator is a separate process (`uv run python -m brz.worker` from `backend/`). Full browser containment requires the supported Linux host policy; do not weaken it to make a local preview work.
 
 ## Known Local Constraints
 
 The local browser proxy build stopped with Docker storage I/O errors when the host had about 191 MiB free. All 100 application tests passed, including the 21 AI and coordinator tests captured in the focused rerun. Twelve real Python Docker checks passed locally and on Ubuntu CI. Full browser containment and live Vultr Inference remain pending on the target host. [Focused test output](verification/ai-focused-2026-11-04.txt) · [Verification status](TESTING.md#verification-status) · [Passing GitHub Actions run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41736343238)
 
-GitHub Actions runs application tests, frontend typecheck and build, and real Python Docker containment on every PR targeting `main` or `master` and on pushes to either branch, including documentation-only changes. A skip or expected failure among selected pytest cases fails the check. Browser containment and live inference are verified separately on the target Vultr host. [Workflow](.github/workflows/ci.yml) · [Release verification](TESTING.md#release-verification)
+GitHub Actions installs from `uv.lock` and runs application tests, frontend typecheck and build, a backend image build with an import smoke check, and real Python Docker containment on every PR targeting `main` or `master` and on pushes to either branch, including documentation-only changes. A skip or expected failure among selected pytest cases fails the check. Browser containment and live inference are verified separately on the target Vultr host. [Workflow](.github/workflows/ci.yml) · [Release verification](TESTING.md#release-verification)
 
 ## Lightweight inference controls
 
