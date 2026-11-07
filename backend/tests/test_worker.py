@@ -1,7 +1,9 @@
 import json
 import pytest
 from fakeredis.aioredis import FakeRedis
+from brz.audit import AuditLog
 from brz.config import Settings
+from brz.critic import CodePlan as CriticCodePlan
 from brz.form_schema import FORM_REVISION
 from brz.models import CodePlan
 from brz.presets import BY_ID
@@ -20,7 +22,7 @@ class NeverAI:
 class FakeAI:
     async def structured(self, ctx, *args, **kwargs):
         ctx.calls += 1
-        return CodePlan(code="print(42)")
+        return CriticCodePlan(reasoning="test", code="print(42)", requires_network=False)
     async def call(self, ctx, *args, **kwargs):
         ctx.calls += 1
         return "Evidence summary"
@@ -40,12 +42,16 @@ class FixtureRunner:
         return RunResult("succeeded", details={"receipt": {"id": "forged"}})
 
 
-async def setup_task(pattern="code", source="preset", request=None, runner=None, ai=None):
+async def setup_task(pattern="code", source="preset", request=None, runner=None, ai=None, audit=None):
+    import tempfile
+    from pathlib import Path
     settings = Settings()
     store = Store(settings, FakeRedis(decode_responses=True))
     task = task_record("owner", pattern, source, request or {"kind": "preset", "preset_id": "csv-analysis"}, "ip")
     await store.enqueue(task)
-    coordinator = Coordinator(settings, store, runner or FixtureRunner(), ai or NeverAI())
+    audit_path = Path(tempfile.mktemp(suffix=".db")) if audit is None else None
+    audit = AuditLog() if audit is None else audit
+    coordinator = Coordinator(settings, store, runner or FixtureRunner(), ai or NeverAI(), audit=audit)
     return store, task, coordinator
 
 
@@ -75,6 +81,7 @@ async def test_code_error_has_at_most_two_additional_attempts():
     store, task, coordinator = await setup_task(source="live_ai", request={"kind": "task", "prompt": "test", "pattern": "code"}, runner=runner, ai=FakeAI())
     await coordinator.process(task["id"])
     state = await store.task(task["id"])
+    # Critic validates after AI generation; syntax errors are still repairable
     assert state["status"] == "failed"
     assert runner.runs == 3 and state["recoveries"] == 2 and state["provider_requests"] == 3
 

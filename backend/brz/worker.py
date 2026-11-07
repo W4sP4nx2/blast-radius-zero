@@ -10,6 +10,9 @@ import threading
 import uuid
 from redis.exceptions import RedisError, WatchError
 from .ai import BROWSER_PROMPT, CODE_PROMPT, CallContext, ModelClient
+from .audit import AuditLog
+from .critic import CodePlan as CriticCodePlan, ValidationResult, validate_plan
+
 from .config import Settings
 from .errors import ControlError
 from .form_schema import FORM_REVISION
@@ -23,11 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 class Coordinator:
-    def __init__(self, settings=None, store=None, runner=None, ai=None):
+    def __init__(self, settings=None, store=None, runner=None, ai=None, audit=None):
         self.settings = settings or Settings.from_env()
         self.store = store or Store(self.settings)
         self.runner = runner or SandboxRunner(self.settings)
         self.ai = ai or ModelClient(self.settings, self.store)
+        self.audit = audit or AuditLog()
         self.slots, self.browser_slot = asyncio.Semaphore(2), asyncio.Semaphore(1)
         self.stop = asyncio.Event()
         self.owner = uuid.uuid4().hex
@@ -105,7 +109,15 @@ class Coordinator:
             elif task["pattern"] == "code":
                 await self.store.status(task_id, "planning")
                 generated = await self.ai.structured(ctx, CODE_PROMPT,
-                    request["prompt"] + ("\nA CSV is available at /tmp/input.csv." if upload else "\nNo uploaded input file is present."), CodePlan, "code")
+                    request["prompt"] + ("\nA CSV is available at /tmp/input.csv." if upload else "\nNo uploaded input file is present."), CriticCodePlan, "code")
+                # Critic validation gate: blocks dangerous imports before Docker
+                # Only run on live_ai tasks; presets and user code have their own validation
+                if task["source"] == "live_ai":
+                    validation = validate_plan(generated)
+                    if not validation.is_approved:
+                        await asyncio.to_thread(self.audit.log_error, task_id, "critic", "blocked", "; ".join(validation.errors))
+                        await self.store.status(task_id, "blocked", error="".join(validation.errors))
+                        return
                 code = generated.code
             else:
                 await self.store.status(task_id, "planning")
@@ -125,6 +137,8 @@ class Coordinator:
                 await self.store.status(task_id, "running")
                 result = await asyncio.to_thread(self.runner.run_browser, plan, emit, flag.is_set)
             else:
+                # Audit: code plan validated and ready
+                await asyncio.to_thread(self.audit.log_stage, task_id, "validated", details={"code_bytes": len(code.encode("utf-8"))})
                 while True:
                     if flag.is_set():
                         result = RunResult("cancelled", error="Task cancelled")
@@ -138,7 +152,13 @@ class Coordinator:
                         break
                     await self.store.status(task_id, "planning")
                     fixed = await self.ai.structured(ctx, CODE_PROMPT,
-                        "Repair this short script for the original task.\nTask: " + request["prompt"] + "\nScript:\n" + code[:8000] + "\nUntrusted diagnostics:\n" + result.output[-2000:], CodePlan, "repair")
+                        "Repair this short script for the original task.\nTask: " + request["prompt"] + "\nScript:\n" + code[:8000] + "\nUntrusted diagnostics:\n" + result.output[-2000:], CriticCodePlan, "repair")
+                    # Re-validate repaired code
+                    validation = validate_plan(fixed)
+                    if not validation.is_approved:
+                        await asyncio.to_thread(self.audit.log_error, task_id, "critic_repair", "blocked", "; ".join(validation.errors))
+                        await self.store.status(task_id, "blocked", error="".join(validation.errors))
+                        return
                     code = fixed.code
             if output_exceeded:
                 result.status, result.error = "output_limit", "Combined task log limit exceeded"
@@ -188,11 +208,14 @@ class Coordinator:
                     raise ControlError("screenshot_required", "Approval requires a captured form screenshot.", 422)
                 await self.store.prepare_action(task, plan["title"], plan["message"], screenshot)
                 result.status = "awaiting_approval"
+            await asyncio.to_thread(self.audit.log_execution, task_id, result.status, result.output, result.error,
+                                           ctx.calls, ctx.recoveries)
             await self.store.update(task_id, usage=ctx.usage, provider_requests=ctx.calls, recoveries=ctx.recoveries)
             for usage in ctx.usage:
                 await self.store.event(task_id, "usage", usage)
             await self.store.status(task_id, result.status, error=result.error)
         except ControlError as exc:
+            await asyncio.to_thread(self.audit.log_error, task_id, "execution", exc.reason, exc.message)
             await self.store.update(task_id, result=exc.detail(), usage=ctx.usage, provider_requests=ctx.calls, recoveries=ctx.recoveries)
             await self.store.status(task_id, "failed", error=exc.message)
         except Exception as exc:
@@ -206,6 +229,7 @@ class Coordinator:
             self.cancel_flags.discard(flag)
             monitor.cancel()
             await asyncio.gather(monitor, return_exceptions=True)
+            self.audit.close()
 
     async def heartbeat(self):
         while not self.stop.is_set():
@@ -265,6 +289,7 @@ class Coordinator:
                 await self.store.redis.delete("worker:lease", "worker:heartbeat")
             await self.ai.close()
             await self.store.close()
+            self.audit.close()
 
 
 async def main():
