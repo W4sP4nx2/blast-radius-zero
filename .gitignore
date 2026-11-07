@@ -15,3 +15,7 @@ playwright-report/
 .DS_Store
 verification/*.json
 !verification/example.json
+
+# Parallel agent worktrees and local Native data
+.worktrees/
+backend/data/

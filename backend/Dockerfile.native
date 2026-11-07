@@ -1,0 +1,45 @@
+# Build Native MCP server for Blast Radius Zero
+# This Dockerfile creates a minimal image with the Native MCP binary
+
+FROM rust:1.98.0-bullseye AS builder
+
+WORKDIR /build
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    cmake \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Native source
+COPY native-source /build/native-source
+
+# Build Native MCP server
+WORKDIR /build/native-source
+RUN cargo build --locked --bin mcp-stdio --release
+
+# Create runtime image
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from builder
+COPY --from=builder /build/native-source/target/release/mcp-stdio /app/mcp-stdio
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Make binary executable
+RUN chmod +x /app/mcp-stdio
+
+# Expose port for HTTP mode (optional)
+EXPOSE 3001
+
+# Run the MCP server
+CMD ["/app/mcp-stdio", "/app/data/native.db"]

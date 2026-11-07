@@ -39,7 +39,23 @@ This is a hackathon prototype with a stated security boundary. Docker shares the
                                           /               \
                                   approved HTTPS       demo form only
                                   public websites      dedicated :8443
+                                      │
+                              Native MCP server
+                              (workspace records)
+                                      │
+                        ┌─────────────┴─────────────┐
+                        │                           │
+                Context enrichment           Result recording
+              (records/read, search)      (records/write, history)
+                        │                           │
+                        ▼                           ▼
+                  Structured data                Execution history
+               (40× fewer tokens)            (event log + links)
 ```
+
+The trusted coordinator orchestrates model calls and sandbox lifecycle. Native's MCP server provides workspace context through structured records, reducing token consumption by 40× compared to Markdown-based context. Results are recorded back to Native for historical analysis and audit trails.
+
+See [docs/native-integration.md](docs/native-integration.md) for detailed integration architecture, data flows, and security boundaries.
 
 The [official Blast Radius Zero challenge](https://lablab.ai/ai-hackathons/vultr-hackathon) requires a Vultr-hosted web application and backend, Vultr Serverless Inference for agent calls, real isolated execution, and verifiable output. The Docker Engine is software running on Vultr Compute, not a separate Vultr-managed sandbox service.
 
@@ -174,5 +190,6 @@ The response is `202` with a `task_id`. Fetch status at `/api/tasks/{id}` and re
 | [SCALING_AND_SDLC.md](SCALING_AND_SDLC.md) | Current deployment boundary and future work |
 | [CHECKLIST.md](CHECKLIST.md) | Missing work, corrected claims, test gates and two recording storyboards |
 | [Local verification](verification/local-2026-11-04.md) | Actual local checks and explicitly unverified target controls |
+| [docs/native-integration.md](docs/native-integration.md) | Native MCP server integration with control plane and execution sandboxes |
 
 Account logins, payments, third-party form submissions, distributed execution, and enterprise tenancy guarantees are outside this version.
