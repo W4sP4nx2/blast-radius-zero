@@ -10,10 +10,12 @@ from fastapi import Depends, FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from redis.exceptions import RedisError
+from typing import Any, Dict, List, Optional, Union
 from .ai import ModelClient
 from .config import Settings, TERMINAL
 from .errors import ControlError
 from .models import ExecuteRequest
+from .native_api import NativeAPI, create_native_api
 from .presets import BY_ID, preset_ids, public_presets
 from .store import Store, task_record
 
@@ -48,15 +50,18 @@ def create_app(settings=None, store=None):
     settings = settings or Settings.from_env()
     store = store or Store(settings)
     ai = ModelClient(settings, store)
+    native = NativeAPI(settings)
 
     @asynccontextmanager
     async def lifespan(app):
         yield
         await ai.close()
         await store.close()
+        await native.close()
 
     app = FastAPI(title="Blast Radius Zero", version="0.1.0", lifespan=lifespan)
     app.state.store, app.state.settings, app.state.ai = store, settings, ai
+    app.state.native = native
     app.add_middleware(BodyLimit)
 
     @app.exception_handler(ControlError)
@@ -236,6 +241,151 @@ def create_app(settings=None, store=None):
         key = client_key(request)
         await store.rate("task", key, settings.starts_per_minute, 60)
         return {"task_id": await store.approve(action_id, sid, key)}
+
+    # Native MCP record management endpoints
+    @app.get("/api/native/engine-info")
+    async def native_engine_info(sid=Depends(session)):
+        """Get information about the connected Native engine."""
+        return await native.get_engine_info()
+
+    @app.post("/api/native/decisions", status_code=201)
+    async def create_decision(
+        payload: Dict[str, Any],
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Create a decision record in Native."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        title = payload.get("title")
+        description = payload.get("description", "")
+        metadata = payload.get("metadata", {})
+        
+        if not title:
+            raise ControlError("invalid_request", "Decision title is required", 422)
+            
+        result = await native.create_decision(title, description, metadata)
+        await store.event(task_id="", event_type="native", data={"action": "decision_created", "record_id": result.get("id")})
+        return result
+
+    @app.post("/api/native/tasks", status_code=201)
+    async def create_task(
+        payload: Dict[str, Any],
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Create a task record in Native."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        title = payload.get("title")
+        description = payload.get("description", "")
+        related_decision_id = payload.get("related_decision_id")
+        metadata = payload.get("metadata", {})
+        
+        if not title:
+            raise ControlError("invalid_request", "Task title is required", 422)
+            
+        result = await native.create_task(title, description, related_decision_id, metadata)
+        await store.event(task_id="", event_type="native", data={"action": "task_created", "record_id": result.get("id")})
+        return result
+
+    @app.post("/api/native/decisions-and-tasks", status_code=201)
+    async def create_decision_and_task(
+        payload: Dict[str, Any],
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Create a decision and task, linking them together."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        decision_title = payload.get("decision_title")
+        decision_description = payload.get("decision_description", "")
+        task_title = payload.get("task_title")
+        task_description = payload.get("task_description", "")
+        metadata = payload.get("metadata", {})
+        
+        if not decision_title or not task_title:
+            raise ControlError("invalid_request", "Both decision and task titles are required", 422)
+            
+        result = await native.create_decision_and_task(
+            decision_title, decision_description, task_title, task_description, metadata
+        )
+        await store.event(task_id="", event_type="native", data={
+            "action": "decision_and_task_created",
+            "decision_id": result.get("decision", {}).get("id"),
+            "task_id": result.get("task", {}).get("id"),
+        })
+        return result
+
+    @app.get("/api/native/records/{record_id}")
+    async def get_record(record_id: str, sid=Depends(session)):
+        """Get a record by its ID."""
+        return await native.get_record(record_id)
+
+    @app.get("/api/native/records")
+    async def list_records(kind: Optional[str] = None, sid=Depends(session)):
+        """List records, optionally filtered by kind."""
+        return {"records": await native.list_records(kind)}
+
+    @app.patch("/api/native/records/{record_id}")
+    async def update_record(
+        record_id: str,
+        payload: Dict[str, Any],
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Update a record."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        updates = payload.get("updates", {})
+        result = await native.update_record(record_id, updates)
+        await store.event(task_id="", event_type="native", data={"action": "record_updated", "record_id": record_id})
+        return result
+
+    @app.delete("/api/native/records/{record_id}")
+    async def delete_record(
+        record_id: str,
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Delete a record."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        result = await native.delete_record(record_id)
+        await store.event(task_id="", event_type="native", data={"action": "record_deleted", "record_id": record_id})
+        return result
+
+    @app.post("/api/native/relationships")
+    async def create_relationship(
+        payload: Dict[str, Any],
+        request: Request,
+        sid=Depends(mutation),
+    ):
+        """Create a relationship between two records."""
+        await store.capacity()
+        key = client_key(request)
+        await store.rate("native", key, 30, 60)
+        
+        from_id = payload.get("from_id")
+        to_id = payload.get("to_id")
+        relationship_type = payload.get("type")
+        
+        if not from_id or not to_id or not relationship_type:
+            raise ControlError("invalid_request", "from_id, to_id, and type are required", 422)
+            
+        result = await native.create_relationship(from_id, to_id, relationship_type)
+        await store.event(task_id="", event_type="native", data={"action": "relationship_created", "from_id": from_id, "to_id": to_id})
+        return result
 
     return app
 
