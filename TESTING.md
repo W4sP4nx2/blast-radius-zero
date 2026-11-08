@@ -146,7 +146,7 @@ uv run --locked pytest core/tests/test_ai.py core/tests/test_worker.py -v
 # Isolated Linux Docker host. This is the Python containment scope used in CI.
 docker build -t brz-python-sandbox:local sandbox/python
 BRZ_INTEGRATION=1 uv run --locked pytest core/tests \
-  -m 'integration and not browser_integration' --fail-on-skip -v
+  -m 'integration and not browser_integration and not native_integration' --fail-on-skip -v
 
 # Optional Native MCP context-engine cold-start measurement. This does not
 # execute code and is not comparable with Docker sandbox startup.

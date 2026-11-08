@@ -64,4 +64,4 @@ jobs:
       - name: Python Docker containment (BRZ_INTEGRATION=1)
         env:
           BRZ_INTEGRATION: '1'
-        run: uv run --locked pytest core/tests -m 'integration and not browser_integration' --fail-on-skip -v
+        run: uv run --locked pytest core/tests -m 'integration and not browser_integration and not native_integration' --fail-on-skip -v
