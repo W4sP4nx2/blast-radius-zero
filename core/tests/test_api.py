@@ -139,3 +139,10 @@ async def test_chunked_request_body_limit(environment):
             yield b" " * 1024 * 1024
     response = await c.post("/api/execute", content=body(), headers={"Content-Type": "application/json"})
     assert response.status_code == 413
+
+
+async def test_health_reports_administrator_selected_sandbox_provider(environment):
+    client, _, _ = environment
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["sandbox_provider"] == "docker"

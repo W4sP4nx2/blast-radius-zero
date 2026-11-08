@@ -16,12 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: core/requirements-dev.txt
-      - run: pip install -r core/requirements-dev.txt
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Validate deployment scripts
+        run: bash -n scripts/deploy-vultr.sh deploy/preflight.sh deploy/install-firewall.sh
       - name: Core application tests
-        run: PYTHONPATH=core python -m pytest core/tests -m 'not integration' --fail-on-skip -v
+        run: uv run --locked pytest core/tests -m 'not integration' --fail-on-skip -v
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -42,16 +46,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: core/requirements-dev.txt
-      - run: pip install -r core/requirements-dev.txt
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - run: uv sync --locked
       - name: Report available disk space
         run: df -h .
+      - name: Build core image from uv.lock
+        run: |
+          docker build -f core/Dockerfile -t brz-core:ci .
+          docker run --rm --read-only brz-core:ci python -c "import brz.api, brz.worker, brz.form_service"
+          docker run --rm --read-only brz-core:ci uvicorn --version
       - name: Build Python sandbox
         run: docker build -t brz-python-sandbox:local sandbox/python
       - name: Python Docker containment (BRZ_INTEGRATION=1)
         env:
-          PYTHONPATH: core
           BRZ_INTEGRATION: '1'
-        run: python -m pytest core/tests -m 'integration and not browser_integration' --fail-on-skip -v
+        run: uv run --locked pytest core/tests -m 'integration and not browser_integration and not native_integration' --fail-on-skip -v

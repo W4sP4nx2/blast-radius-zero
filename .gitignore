@@ -32,3 +32,10 @@ verification/*.json
 *.session.json
 logs/
 /tmp/
+
+# Local Native MCP source/data and SQLite runtime files
+/core/native_engine/
+/native-data/
+*.db
+*.db-shm
+*.db-wal

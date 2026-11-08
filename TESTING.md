@@ -134,22 +134,30 @@ CI runs application validation and Python Docker containment independently on ep
 ### Commands
 
 ```bash
+# Install the exact Python 3.13 environment from uv.lock.
+uv sync --locked
+
 # Local application tests; no Docker containment claim.
-PYTHONPATH=core .venv/bin/python -m pytest core/tests -m 'not integration' -q
+uv run --locked pytest core/tests -m 'not integration' -q
 
 # Focused provider and coordinator tests. Uses local stubs and doubles.
-PYTHONPATH=core .venv/bin/python -m pytest core/tests/test_ai.py core/tests/test_worker.py -v
+uv run --locked pytest core/tests/test_ai.py core/tests/test_worker.py -v
 
 # Isolated Linux Docker host. This is the Python containment scope used in CI.
 docker build -t brz-python-sandbox:local sandbox/python
-PYTHONPATH=core BRZ_INTEGRATION=1 .venv/bin/python -m pytest core/tests \
-  -m 'integration and not browser_integration' --fail-on-skip -v
+BRZ_INTEGRATION=1 uv run --locked pytest core/tests \
+  -m 'integration and not browser_integration and not native_integration' --fail-on-skip -v
 
-# Run the browser capture and metadata probes after firewall, DNS and TLS setup.
-PYTHONPATH=core BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
-  .venv/bin/python -m pytest core/tests -m browser_integration --fail-on-skip -v
+# Optional Native MCP context-engine cold-start measurement. This does not
+# execute code and is not comparable with Docker sandbox startup.
+BRZ_NATIVE_INTEGRATION=1 NATIVE_MCP_BINARY=/usr/local/lib/brz/mcp-stdio \
+  uv run --locked pytest core/tests/test_native_latency.py --fail-on-skip -v
+
+# Run browser capture and metadata probes after firewall, DNS and TLS setup.
+BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
+  uv run --locked pytest core/tests -m browser_integration --fail-on-skip -v
 ```
 
-The suite is the checked-in automation subset. The full browser DNS-rebinding, controlled-sentinel, proxy-death, host-firewall fault and live-inference matrix above still requires a target-host release session. The integration fixture removes BRZ-labelled resources; never run it alongside production jobs.
+The suite is the checked-in automation subset. The optional Native MCP measurement covers a fixed `engine_info` stdio round trip only; it does not execute Python or a browser and must not be compared to Docker sandbox startup. The full browser DNS-rebinding, controlled-sentinel, proxy-death, host-firewall fault and live-inference matrix above still requires a target-host release session. The integration fixture removes BRZ-labelled resources; never run it alongside production jobs.
 
 For each release retain: commit SHA, command output, relevant image IDs, policy/preflight results, representative task IDs, timing, resource outcome, cleanup evidence, and a sanitized screenshot or recording. Never include `.env`, provider keys, session cookies, approval permits, or metadata tokens in evidence.

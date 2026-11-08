@@ -29,11 +29,16 @@ Set these values in `.env`:
 | `VULTR_API_KEY` | Only for live AI | Vultr Inference subscription key |
 | `VULTR_TEXT_MODEL` | Only for live AI | Accessible text model ID |
 | `VULTR_VISION_MODEL` | For vision checks | Accessible vision-capable model ID |
-| `NATIVE_API_KEY` | No | Reserved for a future Native adapter; unused today |
+| `SANDBOX_RUNTIME` | No | Must remain `docker`; `native` is a fail-closed scaffold |
+| `AUDIT_DB_PATH` | No | Worker-only append-only audit database path |
+| `NATIVE_HOME` | No | Local Native MCP data directory for future integration |
+| `NATIVE_MCP_BINARY` | No | Pinned local `mcp-stdio` binary path |
 
 Never place real values in `.env.example`. Keep `.env` readable only by the deployment operator.
 
 ## Build and start
+
+To provision Docker and the pinned Native MCP context engine on an Ubuntu 24.04 x86_64 VM without starting the application, run `sudo bash scripts/deploy-vultr.sh`. Native MCP uses local stdio and opens no network port. It is not the task sandbox; keep `SANDBOX_RUNTIME=docker`.
 
 ```bash
 docker compose --profile images build
@@ -49,9 +54,9 @@ Open `https://APP_DOMAIN` after Caddy obtains certificates. The isolated demo fo
 ## Local core development
 
 ```bash
-python3.13 -m venv .venv
-.venv/bin/pip install -r core/requirements-dev.txt
-PYTHONPATH=core .venv/bin/python -m pytest core/tests -m 'not integration' --fail-on-skip
+uv venv
+uv sync --locked
+uv run --locked pytest core/tests -m 'not integration' --fail-on-skip
 ```
 
 For interactive local work, start Redis, set `REDIS_URL` and `APP_ORIGIN=http://localhost:3000`, then run the API and coordinator as separate processes. Local execution does not prove target-host firewall policy.

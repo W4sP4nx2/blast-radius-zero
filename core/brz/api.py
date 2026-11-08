@@ -123,6 +123,7 @@ def create_app(settings=None, store=None):
             ready, redis_ready = {}, False
             ai_state = {"enabled": settings.ai_enabled, "available": False, "reason": "Shared state unavailable"}
         return {"status": "healthy" if ready.get("ready") and redis_ready else "degraded",
+                "sandbox_provider": ready.get("provider", settings.sandbox_runtime),
                 "worker_ready": bool(ready.get("ready")), "browser_ready": bool(ready.get("browser_ready")),
                 "redis_ready": redis_ready, "ai": ai_state,
                 "limits": {"concurrent_sandboxes": 2, "concurrent_browsers": 1, "queue": settings.queue_limit,
