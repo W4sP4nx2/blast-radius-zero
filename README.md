@@ -19,6 +19,18 @@ Blast Radius Zero is a containment-first execution layer built for the Vultr Age
 - **Human approval:** form preparation and submission use separate browsers, an expiring approval, and a payload-bound permit.
 - **Ephemeral lifecycle:** task containers and networks are removed after success, failure, cancellation, or timeout.
 
+## Security pillar matrix
+
+| Pillar | Enforced control | Hybrid boundary | Current evidence |
+| --- | --- | --- | --- |
+| Secret isolation | The coordinator passes an explicit sandbox environment; provider keys, Redis credentials, host paths, and the Docker socket are excluded. | Secrets stay in the trusted local/operator or Vultr control-plane environment and never enter task containers. | Host-secret absence passed in [CI run 42454632130](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/42454632130). |
+| Process isolation | Submitted Python runs as a non-root user with dropped capabilities, `no-new-privileges`, seccomp, and a read-only root filesystem. | The UI and API request work; only the coordinator on the Vultr host can create execution containers. | Core image, Python image, runtime privilege, and read-only checks passed in CI. |
+| Network containment | Python uses `network_mode=none`; browser traffic requires Squid plus actual-destination host filtering. | Agent output cannot select mounts, images, capabilities, or egress policy. | Python DNS and direct-IP denial passed; full browser/firewall verification remains target-host work. |
+| Resource enforcement | Docker cgroups and tmpfs apply fixed memory, CPU, PID, scratch, output, artifact, and deadline bounds. | Limits are applied at the cloud execution boundary rather than trusted to browser or model code. | Memory, PID, tmpfs, timeout, output, cancellation, and cleanup checks passed in CI. |
+| Human authorization | Form preparation, approval, revalidation, and permit-enforced submission are separate stages. | A person reviews locally in the UI; the project-owned cloud endpoint validates the exact approved payload. | Unit contracts pass; public target-host browser evidence remains pending. |
+| Ephemeral state | Containers and per-stage networks are removed on every terminal path; artifacts expire after 15 minutes. | Durable state must be explicitly exported to bounded trusted storage. | Success, timeout, cancellation, and scratch-reset checks passed in CI. |
+| Provider fail-closed | `docker` is the only ready execution provider; `native` reports unready instead of falling back to host execution. | Native MCP may support local context, but it is not treated as a cloud sandbox boundary. | Provider unit tests pass; Native execution remains gated by [NATIVE_SPEC.md](NATIVE_SPEC.md). |
+
 ## Architecture
 
 ```text
@@ -43,9 +55,32 @@ Web dashboard (Next.js) ───────► Core API (FastAPI) ────
 
 The intended production host is a dedicated Ubuntu 24.04 Vultr Cloud Compute VM. Docker is software on that VM, not a separate Vultr-managed sandbox. Read [Architecture and trust boundaries](docs/ARCHITECTURE.md) before changing execution or deployment policy.
 
+## Local-to-Cloud hybrid setup
+
+Blast Radius Zero keeps interaction and optional context tooling close to the operator while moving untrusted execution to the bounded Vultr host.
+
+| Layer | Runs where | Responsibility |
+| --- | --- | --- |
+| [Live interactive canvas](https://2vwtsf9c9xczjseh37z4cyn6f-5173.preview.nativelyai.app/) | Protected Natively preview in the user's browser | Submit tasks, inspect logs and artifacts, and approve the project-owned demo action. A current Natively session is required. |
+| Web and core development | Local workstation | Build the Next.js UI, run deterministic unit tests, edit plans and policy, and connect only to explicitly configured services. |
+| [Native control/context plane](https://github.com/withnative/native) | Optional local or Vultr-host process over stdio | Provide the pinned SQLite-backed MCP context engine. It does not execute untrusted code or browsers and is not a containment boundary. |
+| Vultr control plane | Dedicated Ubuntu VM | Run Caddy, FastAPI, Redis, the trusted coordinator, audit storage, and optional Vultr Inference calls. |
+| Docker execution plane | The same dedicated Vultr VM | Run fresh Python or Playwright containers with fixed images, cgroup limits, network policy, evidence collection, and teardown. |
+
+### Hybrid flow
+
+1. Clone this repository locally, run `uv sync --locked`, and validate the core and web builds.
+2. Use the [interactive canvas](https://2vwtsf9c9xczjseh37z4cyn6f-5173.preview.nativelyai.app/) for the protected demonstration, or run `web/` locally against an explicitly configured API origin.
+3. Provision the dedicated Vultr host with `sudo bash scripts/deploy-vultr.sh`. The script installs Docker and a pinned [`withnative/native`](https://github.com/withnative/native) `mcp-stdio` binary but does not treat Native as an execution sandbox.
+4. Copy `.env.example` to a permission-restricted `.env`, keep `SANDBOX_RUNTIME=docker`, configure DNS and optional Vultr Inference values, then install the checked-in host egress policy.
+5. Build with `docker compose --profile images build`, start with `docker compose up -d`, and require `deploy/preflight.sh` to pass before enabling browser work.
+6. Keep task files ephemeral. Export only approved bounded artifacts or trusted audit records before teardown.
+
+The preview currently returns an authorization challenge to unauthenticated clients. The public Vultr deployment and live inference path remain separate release checks; the canvas link does not prove those controls are deployed.
+
 ## Execution-provider boundary
 
-The coordinator uses an administrator-selected `BaseSandboxProvider`. `SANDBOX_RUNTIME=docker` delegates to the tested Docker lifecycle. `SANDBOX_RUNTIME=native` currently fails readiness instead of executing on the host or silently falling back, because the public withnative/native interface is a local SQLite/MCP context engine rather than an isolated code or browser runtime.
+The coordinator uses an administrator-selected `BaseSandboxProvider`. `SANDBOX_RUNTIME=docker` delegates to the tested Docker lifecycle. `SANDBOX_RUNTIME=native` currently fails readiness instead of executing on the host or silently falling back, because the public [`withnative/native`](https://github.com/withnative/native) interface is a local SQLite/MCP context engine rather than an isolated code or browser runtime.
 
 An append-only SQLite audit database records trusted transitions, output size/hash, and final outcomes on a worker-only volume. It does not retain task code or output bodies. See [Native provider specification](NATIVE_SPEC.md) for provisioning and the gates required before Native execution can be enabled.
 
