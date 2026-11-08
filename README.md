@@ -43,6 +43,12 @@ This is a hackathon prototype with a stated security boundary. Docker shares the
 
 The [official Blast Radius Zero challenge](https://lablab.ai/ai-hackathons/vultr-hackathon) requires a Vultr-hosted web application and backend, Vultr Serverless Inference for agent calls, real isolated execution, and verifiable output. The Docker Engine is software running on Vultr Compute, not a separate Vultr-managed sandbox service.
 
+### Execution-provider boundary
+
+The coordinator selects an administrator-configured `BaseSandboxProvider`. `SANDBOX_RUNTIME=docker` is the default and delegates to the tested Docker implementation. `SANDBOX_RUNTIME=native` currently fails readiness rather than executing on the host or silently falling back: the public withnative/native release is a local SQLite/MCP context engine, not an isolated code/browser runtime. See [NATIVE_SPEC.md](NATIVE_SPEC.md) for the interface, provisioning path, and containment gates required before that mode can be enabled.
+
+An append-only SQLite audit database records trusted stage transitions, output size/hash, and final outcomes on the worker-only `audit-data` volume. It does not retain task code or output bodies, is separate from temporary task state in Redis, and does not grant execution authority.
+
 ### Execution walkthrough
 
 1. **Admit.** FastAPI checks the session, CSRF token, request schema, and Redis quotas before enqueueing work. It accepts up to 2 MiB of UTF-8 CSV and rejects NUL bytes. New execution admission requires Redis.

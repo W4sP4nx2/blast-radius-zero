@@ -23,6 +23,8 @@ jobs:
           enable-cache: true
       # --locked fails if uv.lock no longer matches pyproject.toml.
       - run: uv sync --locked
+      - name: Validate deployment scripts
+        run: bash -n scripts/deploy-vultr.sh deploy/preflight.sh deploy/install-firewall.sh
       - name: Backend application tests
         run: uv run --locked pytest backend/tests -m 'not integration' --fail-on-skip -v
       - uses: actions/setup-node@v4

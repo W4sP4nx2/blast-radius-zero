@@ -8,13 +8,17 @@ This guide describes the application's intended enforcement points and operating
 | --- | --- | --- |
 | Next.js | Dashboard and same-origin API routing | No Docker access or provider credentials in browser code |
 | FastAPI | Session/CSRF checks, input validation, admission, task/event access | Trusted control plane |
-| Coordinator | Bounded model calls, consume admitted tasks, create/monitor/remove containers, collect artifacts | Sole application Docker-socket owner |
+| Coordinator | Bounded model calls, consume admitted tasks, select the administrator-configured sandbox provider, collect artifacts | Sole application Docker-socket owner while Docker is selected |
+| Sandbox provider | Fixed `initialize`, code, browser, and teardown contract; Docker is the only ready implementation | Never accepts model/task-controlled infrastructure settings |
+| Audit SQLite | Append-only trusted stage and final-outcome records on a worker-only volume | Not exposed to sandboxes or public API clients |
 | Redis | Task/session state, counters, approvals, receipts, bounded upload/artifact blobs | Private service; no sandbox access |
 | Squid | Administrator allowlist and forward-proxy access control | Trusted per-run browser peer |
 | Demo form | Independently validate submission permits and create idempotent receipts | Dedicated HTTPS listener; no control-plane routes |
 | Caddy | HTTPS and fixed application/form routing | Only intended public entry points |
 
 One coordinator owns the two-model-call semaphore and the two-task execution limit, including at most one browser stage. A Redis ownership lease rejects a second coordinator. Do not increase worker counts without implementing distributed execution admission.
+
+`SANDBOX_RUNTIME` is administrator configuration. `docker` delegates through `DockerSandboxProvider` to the existing lifecycle below. `native` deliberately reports unready because the published Native MCP interface cannot enforce these execution controls. It never falls back to a host subprocess. [NATIVE_SPEC.md](NATIVE_SPEC.md) records the exact status and promotion gates.
 
 Redis is a bounded prototype blob/state store. Uploads and artifacts expire after 15 minutes, and admission must reject pressure rather than evict approval/counter state or allow unbounded memory growth. Provider secrets are administrator configuration and are never exposed through public health or task responses.
 

@@ -13,6 +13,10 @@ x-backend: &backend
     PYTHON_IMAGE: brz-python-sandbox:local
     BROWSER_IMAGE: brz-browser-sandbox:local
     PROXY_IMAGE: brz-egress-proxy:local
+    SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-docker}
+    AUDIT_DB_PATH: /var/lib/brz/audit/audit.db
+    NATIVE_HOME: /var/lib/brz/native
+    NATIVE_MCP_BINARY: /usr/local/lib/brz/mcp-stdio
   networks: [app]
   restart: unless-stopped
   security_opt: [no-new-privileges:true]
@@ -51,7 +55,9 @@ services:
     # The coordinator is trusted and daemon-privileged. No public API has this mount.
     user: '0:0'
     command: [python, -m, brz.worker]
-    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - audit-data:/var/lib/brz/audit
 
   form:
     <<: *backend
@@ -131,3 +137,4 @@ volumes:
   redis-data:
   caddy-data:
   caddy-config:
+  audit-data:

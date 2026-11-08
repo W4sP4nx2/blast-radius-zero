@@ -1,9 +1,7 @@
 import json
 import pytest
 from fakeredis.aioredis import FakeRedis
-from brz.audit import AuditLog
 from brz.config import Settings
-from brz.critic import CodePlan as CriticCodePlan
 from brz.form_schema import FORM_REVISION
 from brz.models import CodePlan
 from brz.presets import BY_ID
@@ -22,36 +20,40 @@ class NeverAI:
 class FakeAI:
     async def structured(self, ctx, *args, **kwargs):
         ctx.calls += 1
-        return CriticCodePlan(reasoning="test", code="print(42)", requires_network=False)
+        return CodePlan(code="print(42)")
     async def call(self, ctx, *args, **kwargs):
         ctx.calls += 1
         return "Evidence summary"
+
+
+class NullAudit:
+    def log_task_start(self, *args, **kwargs): pass
+    def log_stage(self, *args, **kwargs): pass
+    def log_error(self, *args, **kwargs): pass
+    def log_execution(self, *args, **kwargs): pass
+    def close(self): pass
 
 
 class FixtureRunner:
     """Application contract double; never evidence of actual containment."""
     def __init__(self, outcome="succeeded", syntax=False):
         self.outcome, self.syntax, self.runs = outcome, syntax, 0
-    def run_code(self, code, upload, emit, cancelled):
+    def exec_code(self, code, upload, emit, cancelled):
         self.runs += 1
         text = "SyntaxError: test fixture\n" if self.syntax else "fixture output\n"
         emit("stdout", {"text": text})
         return RunResult(self.outcome, text, error="fixture error" if self.outcome != "succeeded" else "")
-    def run_browser(self, plan, emit, cancelled):
+    def exec_browser(self, plan, emit, cancelled):
         self.runs += 1
         return RunResult("succeeded", details={"receipt": {"id": "forged"}})
 
 
 async def setup_task(pattern="code", source="preset", request=None, runner=None, ai=None, audit=None):
-    import tempfile
-    from pathlib import Path
     settings = Settings()
     store = Store(settings, FakeRedis(decode_responses=True))
     task = task_record("owner", pattern, source, request or {"kind": "preset", "preset_id": "csv-analysis"}, "ip")
     await store.enqueue(task)
-    audit_path = Path(tempfile.mktemp(suffix=".db")) if audit is None else None
-    audit = AuditLog() if audit is None else audit
-    coordinator = Coordinator(settings, store, runner or FixtureRunner(), ai or NeverAI(), audit=audit)
+    coordinator = Coordinator(settings, store, runner or FixtureRunner(), ai or NeverAI(), audit or NullAudit())
     return store, task, coordinator
 
 
@@ -107,7 +109,7 @@ async def test_browser_receipt_is_not_trusted_without_form_service_record():
 
 async def test_preparation_creates_pending_action_without_submission():
     class FormRunner(FixtureRunner):
-        def run_browser(self, plan, emit, cancelled):
+        def exec_browser(self, plan, emit, cancelled):
             self.runs += 1
             return RunResult("succeeded", artifacts={"screenshot.png": b"\x89PNG\r\n\x1a\nfixture"}, details={
                 "form_revision": FORM_REVISION, "form_fields": {"title": plan["title"], "message": plan["message"]}})
@@ -118,3 +120,40 @@ async def test_preparation_creates_pending_action_without_submission():
     action = json.loads(await store.redis.get("action:" + state["pending_action"]["id"]))
     assert action["status"] == "pending" and "permit_hash" not in action
     assert await store.receipt(action["id"]) is None
+
+
+async def test_direct_forbidden_import_is_blocked_before_sandbox():
+    runner = FixtureRunner()
+    store, task, coordinator = await setup_task(
+        source="custom_code",
+        request={"kind": "code", "code_payload": "import urllib.request"},
+        runner=runner,
+    )
+    await coordinator.process(task["id"])
+    state = await store.task(task["id"])
+    events = [json.loads(fields["event"]) for _, fields in await store.redis.xrange("events:" + task["id"])]
+    assert state["status"] == "blocked"
+    assert state["provider_requests"] == 0
+    assert runner.runs == 0
+    assert any(event["type"] == "policy" and event["data"]["enforcement"] == "trusted_ast_validator" for event in events)
+
+
+async def test_live_ai_policy_denial_is_not_repaired():
+    class NetworkAI(FakeAI):
+        async def structured(self, ctx, *args, **kwargs):
+            ctx.calls += 1
+            return CodePlan(code="import socket")
+
+    runner = FixtureRunner()
+    store, task, coordinator = await setup_task(
+        source="live_ai",
+        request={"kind": "task", "prompt": "connect externally", "pattern": "code"},
+        runner=runner,
+        ai=NetworkAI(),
+    )
+    await coordinator.process(task["id"])
+    state = await store.task(task["id"])
+    assert state["status"] == "blocked"
+    assert state["provider_requests"] == 1
+    assert state["recoveries"] == 0
+    assert runner.runs == 0

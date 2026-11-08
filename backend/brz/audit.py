@@ -1,148 +1,156 @@
-"""Audit: persistent SQLite audit trail for task execution."""
+"""Append-only SQLite audit events owned by the trusted coordinator."""
+from __future__ import annotations
+
+import hashlib
 import json
 import sqlite3
-import threading
+import time
 from pathlib import Path
-from typing import Any
 
-DB_PATH = Path("/tmp/.blast-radius-zero") / "audit.db"
+_SCHEMA = """
+pragma journal_mode = wal;
+pragma foreign_keys = on;
+create table if not exists tasks (
+    task_id text primary key,
+    request_label text not null,
+    pattern text not null,
+    created_at real not null
+);
+create table if not exists events (
+    id integer primary key autoincrement,
+    task_id text not null references tasks(task_id),
+    stage text not null,
+    event_type text not null,
+    details text,
+    duration_ms integer,
+    created_at real not null
+);
+create table if not exists execution_results (
+    task_id text primary key references tasks(task_id),
+    status text not null,
+    output_bytes integer not null,
+    output_sha256 text not null,
+    error text not null,
+    provider_requests integer not null,
+    recoveries integer not null,
+    created_at real not null
+);
+create index if not exists idx_audit_events_task on events(task_id, id);
 
-
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript("""
-        pragma journal_mode = wal;
-        create table if not exists tasks (
-            task_id text primary key,
-            user_request text not null,
-            pattern text not null,
-            status text not null,
-            created_at real not null,
-            updated_at real not null
-        );
-        create table if not exists stages (
-            id integer primary key autoincrement,
-            task_id text not null references tasks(task_id),
-            stage text not null,
-            duration_ms integer,
-            details text,
-            created_at real not null
-        );
-        create table if not exists errors (
-            id integer primary key autoincrement,
-            task_id text not null references tasks(task_id),
-            stage text not null,
-            code text,
-            message text not null,
-            created_at real not null
-        );
-        create table if not exists execution_results (
-            task_id text primary key references tasks(task_id),
-            status text not null,
-            output text,
-            error text,
-            provider_requests integer,
-            recoveries integer,
-            created_at real not null,
-            updated_at real not null
-        );
-        create index if not exists idx_stages_task on stages(task_id);
-        create index if not exists idx_errors_task on errors(task_id);
-        -- Prevent updates/deletes on execution_results (immutable after insert)
-        create trigger if not exists tr_prevent_exec_update
-        before update on execution_results
-        begin
-            select raise(abort, 'execution results are immutable');
-        end;
-        create trigger if not exists tr_prevent_exec_delete
-        before delete on execution_results
-        begin
-            select raise(abort, 'execution results are immutable');
-        end;
-    """)
+create trigger if not exists audit_tasks_no_update
+before update on tasks begin select raise(abort, 'audit rows are append-only'); end;
+create trigger if not exists audit_tasks_no_delete
+before delete on tasks begin select raise(abort, 'audit rows are append-only'); end;
+create trigger if not exists audit_events_no_update
+before update on events begin select raise(abort, 'audit rows are append-only'); end;
+create trigger if not exists audit_events_no_delete
+before delete on events begin select raise(abort, 'audit rows are append-only'); end;
+create trigger if not exists audit_results_no_update
+before update on execution_results begin select raise(abort, 'audit rows are append-only'); end;
+create trigger if not exists audit_results_no_delete
+before delete on execution_results begin select raise(abort, 'audit rows are append-only'); end;
+"""
 
 
 class AuditLog:
-    """Thread-safe SQLite audit log with triggers that prevent immutable data modification."""
-    _local = threading.local()
+    """Small synchronous audit writer; callers move writes off the event loop."""
 
-    def __init__(self, path: Path | None = None):
-        self._path = path or DB_PATH
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection | None = None
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.executescript(_SCHEMA)
+        self.path.chmod(0o600)
 
-    def _get_conn(self) -> sqlite3.Connection:
-        if self._conn is None or not getattr(self._local, "connected", False):
-            self._conn = sqlite3.connect(self._path, isolation_level=None)
-            ensure_schema(self._conn)
-            self._local.connected = True
-        return self._conn
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=5)
+        connection.execute("pragma foreign_keys = on")
+        connection.execute("pragma busy_timeout = 5000")
+        return connection
 
-    def log_task_start(self, task_id: str, user_request: str, pattern: str) -> None:
-        conn = self._get_conn()
-        now = _now()
-        conn.execute(
-            """
-            insert into tasks (task_id, user_request, pattern, status, created_at, updated_at)
-            values (?, ?, ?, 'queued', ?, ?)
-            on conflict(task_id) do update set updated_at = excluded.updated_at
-            """,
-            (task_id, user_request[:10000], pattern, now, now),
+    def log_task_start(self, task_id: str, request_label: str, pattern: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "insert or ignore into tasks values (?, ?, ?, ?)",
+                (task_id, request_label[:256], pattern, time.time()),
+            )
+
+    def log_stage(
+        self,
+        task_id: str,
+        stage: str,
+        *,
+        event_type: str = "transition",
+        duration_ms: int | None = None,
+        details: dict | None = None,
+    ) -> None:
+        encoded = json.dumps(details, separators=(",", ":"), ensure_ascii=False) if details else None
+        with self._connect() as connection:
+            connection.execute(
+                """insert into events
+                   (task_id, stage, event_type, details, duration_ms, created_at)
+                   values (?, ?, ?, ?, ?, ?)""",
+                (task_id, stage, event_type, encoded, duration_ms, time.time()),
+            )
+
+    def log_error(self, task_id: str, stage: str, code: str, message: str) -> None:
+        self.log_stage(
+            task_id,
+            stage,
+            event_type="error",
+            details={"code": code, "message": message[:4096]},
         )
 
-    def log_stage(self, task_id: str, stage: str, duration_ms: int | None = None, details: dict | None = None) -> None:
-        conn = self._get_conn()
-        conn.execute(
-            "insert into stages (task_id, stage, duration_ms, details, created_at) values (?, ?, ?, ?, ?)",
-            (task_id, stage, duration_ms, json.dumps(details) if details else None, _now()),
-        )
+    def log_execution(
+        self,
+        task_id: str,
+        status: str,
+        output: str,
+        error: str,
+        provider_requests: int,
+        recoveries: int,
+    ) -> None:
+        output_bytes = output.encode("utf-8", errors="replace")
+        with self._connect() as connection:
+            connection.execute(
+                """insert or ignore into execution_results
+                   (task_id, status, output_bytes, output_sha256, error,
+                    provider_requests, recoveries, created_at)
+                   values (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    task_id,
+                    status,
+                    len(output_bytes),
+                    hashlib.sha256(output_bytes).hexdigest(),
+                    error[:4096],
+                    provider_requests,
+                    recoveries,
+                    time.time(),
+                ),
+            )
 
-    def log_error(self, task_id: str, stage: str, code: str | None, message: str) -> None:
-        conn = self._get_conn()
-        conn.execute(
-            "insert into errors (task_id, stage, code, message, created_at) values (?, ?, ?, ?, ?)",
-            (task_id, stage, code, message, _now()),
-        )
-
-    def log_execution(self, task_id: str, status: str, output: str, error: str | None,
-                      provider_requests: int, recoveries: int) -> None:
-        now = _now()
-        conn = self._get_conn()
-        conn.execute(
-            """
-            insert into execution_results (task_id, status, output, error, provider_requests, recoveries, created_at, updated_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
-            on conflict(task_id) do update set
-                status = excluded.status,
-                output = excluded.output,
-                error = excluded.error,
-                provider_requests = excluded.provider_requests,
-                recoveries = excluded.recoveries,
-                updated_at = excluded.updated_at
-            """,
-            (task_id, status, output[:262144], error, provider_requests, recoveries, now, now),
-        )
-
-    def get_task(self, task_id: str) -> dict | None:
-        conn = self._get_conn()
-        row = conn.execute("select * from tasks where task_id = ?", (task_id,)).fetchone()
-        if not row:
-            return None
-        return {
-            "task_id": row[0], "user_request": row[1], "pattern": row[2],
-            "status": row[3], "created_at": row[4], "updated_at": row[5],
-        }
+    def task_history(self, task_id: str) -> dict | None:
+        connection = self._connect()
+        connection.row_factory = sqlite3.Row
+        try:
+            task = connection.execute(
+                "select * from tasks where task_id = ?", (task_id,)
+            ).fetchone()
+            if task is None:
+                return None
+            events = connection.execute(
+                "select * from events where task_id = ? order by id", (task_id,)
+            ).fetchall()
+            result = connection.execute(
+                "select * from execution_results where task_id = ?", (task_id,)
+            ).fetchone()
+            return {
+                "task": dict(task),
+                "events": [dict(row) for row in events],
+                "execution_result": dict(result) if result else None,
+            }
+        finally:
+            connection.close()
 
     def close(self) -> None:
-        # Don't close connection if running in different thread (SQLite limitation)
-        if self._conn and getattr(self._local, "connected", False):
-            try:
-                self._conn.close()
-            except sqlite3.ProgrammingError:
-                pass  # Connection already closed or wrong thread
-            finally:
-                self._local.connected = False
-
-
-def _now() -> float:
-    import time
-    return time.time()
+        """Connections are operation-scoped; retained for lifecycle symmetry."""

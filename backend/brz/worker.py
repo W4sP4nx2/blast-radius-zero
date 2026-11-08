@@ -11,7 +11,7 @@ import uuid
 from redis.exceptions import RedisError, WatchError
 from .ai import BROWSER_PROMPT, CODE_PROMPT, CallContext, ModelClient
 from .audit import AuditLog
-from .critic import CodePlan as CriticCodePlan, ValidationResult, validate_plan
+from .critic import validate_code
 
 from .config import Settings
 from .errors import ControlError
@@ -19,7 +19,8 @@ from .form_schema import FORM_REVISION
 from .models import BrowserPlan, CodePlan
 from .policy import research_url
 from .presets import BY_ID
-from .sandbox import RunResult, SandboxRunner
+from .sandbox import RunResult
+from .sandbox_factory import get_sandbox_provider
 from .store import Store
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,9 @@ class Coordinator:
     def __init__(self, settings=None, store=None, runner=None, ai=None, audit=None):
         self.settings = settings or Settings.from_env()
         self.store = store or Store(self.settings)
-        self.runner = runner or SandboxRunner(self.settings)
+        self.runner = runner or get_sandbox_provider(self.settings)
         self.ai = ai or ModelClient(self.settings, self.store)
-        self.audit = audit or AuditLog()
+        self.audit = audit or AuditLog(self.settings.audit_db_path)
         self.slots, self.browser_slot = asyncio.Semaphore(2), asyncio.Semaphore(1)
         self.stop = asyncio.Event()
         self.owner = uuid.uuid4().hex
@@ -88,13 +89,22 @@ class Coordinator:
             asyncio.run_coroutine_threadsafe(self.store.event(task_id, kind, data), loop).result(timeout=5)
 
         try:
+            await asyncio.to_thread(
+                self.audit.log_task_start,
+                task_id,
+                f"{task['source']}:{request.get('kind', 'unknown')}",
+                task["pattern"],
+            )
             if self.stop.is_set() or await self.store.redis.exists(f"cancel:{task_id}"):
+                await asyncio.to_thread(self.audit.log_stage, task_id, "cancelled")
+                await asyncio.to_thread(self.audit.log_execution, task_id, "cancelled", "", "Task cancelled before dispatch", 0, 0)
                 await self.store.status(task_id, "cancelled", error="Task cancelled before dispatch")
                 return
             upload = None
             if request.get("upload_id"):
                 _, upload = await self.store.get_blob(request["upload_id"], task["owner"])
             plan = None
+            code = ""
             if request["kind"] == "preset":
                 preset = BY_ID[request["preset_id"]]
                 code = preset.get("code", "")
@@ -108,22 +118,18 @@ class Coordinator:
                     raise ControlError("approval_expired", "Prepare and approve the form again.", 409)
             elif task["pattern"] == "code":
                 await self.store.status(task_id, "planning")
+                await asyncio.to_thread(self.audit.log_stage, task_id, "planning")
                 generated = await self.ai.structured(ctx, CODE_PROMPT,
-                    request["prompt"] + ("\nA CSV is available at /tmp/input.csv." if upload else "\nNo uploaded input file is present."), CriticCodePlan, "code")
-                # Critic validation gate: blocks dangerous imports before Docker
-                # Only run on live_ai tasks; presets and user code have their own validation
-                if task["source"] == "live_ai":
-                    validation = validate_plan(generated)
-                    if not validation.is_approved:
-                        await asyncio.to_thread(self.audit.log_error, task_id, "critic", "blocked", "; ".join(validation.errors))
-                        await self.store.status(task_id, "blocked", error="".join(validation.errors))
-                        return
+                    request["prompt"] + ("\nA CSV is available at /tmp/input.csv." if upload else "\nNo uploaded input file is present."), CodePlan, "code")
                 code = generated.code
             else:
                 await self.store.status(task_id, "planning")
+                await asyncio.to_thread(self.audit.log_stage, task_id, "planning")
                 generated = await self.ai.structured(ctx, BROWSER_PROMPT + "\nApproved research domains: " + ", ".join(self.settings.browser_domains), request["prompt"], BrowserPlan)
                 plan = generated.model_dump()
             if task["pattern"] == "browser":
+                if plan is None:
+                    raise ControlError("invalid_plan", "Browser plan is missing.", 422)
                 if plan["kind"] in ("prepare_form", "submit_form"):
                     plan["url"] = self.settings.demo_url
                     plan["revision"] = FORM_REVISION
@@ -131,20 +137,79 @@ class Coordinator:
                     try:
                         plan["url"] = research_url(plan["url"], self.settings.browser_domains)
                     except ValueError:
+                        message = "Research destination is not approved"
+                        await asyncio.to_thread(self.audit.log_error, task_id, "critic", "initial_destination", message)
+                        await asyncio.to_thread(self.audit.log_execution, task_id, "blocked", "", message, ctx.calls, ctx.recoveries)
                         await self.store.event(task_id, "policy", {"rule": "initial_destination", "message": "BLOCKED: Research destination is not approved", "enforcement": "trusted_plan_validator"})
-                        await self.store.status(task_id, "blocked", error="Research destination is not approved")
+                        await self.store.status(task_id, "blocked", error=message)
                         return
                 await self.store.status(task_id, "running")
-                result = await asyncio.to_thread(self.runner.run_browser, plan, emit, flag.is_set)
+                await asyncio.to_thread(
+                    self.audit.log_stage,
+                    task_id,
+                    "executing",
+                    details={"provider": getattr(self.runner, "name", "injected")},
+                )
+                result = await asyncio.to_thread(self.runner.exec_browser, plan, emit, flag.is_set)
             else:
-                # Audit: code plan validated and ready
-                await asyncio.to_thread(self.audit.log_stage, task_id, "validated", details={"code_bytes": len(code.encode("utf-8"))})
+                # Presets are trusted, versioned plans. Direct and model-generated
+                # source must pass the deterministic gate before any sandbox starts.
+                if task["source"] != "preset":
+                    while True:
+                        validation = validate_code(code)
+                        if validation.is_approved:
+                            code = validation.sanitized_code or code
+                            break
+                        if task["source"] == "live_ai" and validation.verdict == "repairable" and ctx.recover():
+                            await self.store.status(task_id, "planning")
+                            fixed = await self.ai.structured(
+                                ctx,
+                                CODE_PROMPT,
+                                "Repair this script for the original task.\nTask: "
+                                + request["prompt"]
+                                + "\nScript:\n"
+                                + code[:8000]
+                                + "\nDeterministic validation errors:\n"
+                                + "\n".join(validation.errors),
+                                CodePlan,
+                                "repair",
+                            )
+                            code = fixed.code
+                            continue
+                        message = "; ".join(validation.errors)
+                        await asyncio.to_thread(self.audit.log_error, task_id, "critic", "policy_denied", message)
+                        await self.store.event(task_id, "policy", {
+                            "rule": "python_structure",
+                            "message": "BLOCKED: " + message,
+                            "enforcement": "trusted_ast_validator",
+                        })
+                        await self.store.update(
+                            task_id,
+                            usage=ctx.usage,
+                            provider_requests=ctx.calls,
+                            recoveries=ctx.recoveries,
+                        )
+                        await asyncio.to_thread(self.audit.log_execution, task_id, "blocked", "", message, ctx.calls, ctx.recoveries)
+                        await self.store.status(task_id, "blocked", error=message)
+                        return
+                await asyncio.to_thread(
+                    self.audit.log_stage,
+                    task_id,
+                    "validated",
+                    details={"code_bytes": len(code.encode("utf-8"))},
+                )
                 while True:
                     if flag.is_set():
                         result = RunResult("cancelled", error="Task cancelled")
                         break
                     await self.store.status(task_id, "running")
-                    result = await asyncio.to_thread(self.runner.run_code, code, upload, emit, flag.is_set)
+                    await asyncio.to_thread(
+                        self.audit.log_stage,
+                        task_id,
+                        "executing",
+                        details={"provider": getattr(self.runner, "name", "injected")},
+                    )
+                    result = await asyncio.to_thread(self.runner.exec_code, code, upload, emit, flag.is_set)
                     # Repair only ordinary code diagnostics. Do not infer policy events
                     # from text or retry networking/memory/timeout failures.
                     repairable = result.status == "failed" and any(x in result.output for x in ("SyntaxError:", "IndentationError:", "NameError:"))
@@ -152,14 +217,20 @@ class Coordinator:
                         break
                     await self.store.status(task_id, "planning")
                     fixed = await self.ai.structured(ctx, CODE_PROMPT,
-                        "Repair this short script for the original task.\nTask: " + request["prompt"] + "\nScript:\n" + code[:8000] + "\nUntrusted diagnostics:\n" + result.output[-2000:], CriticCodePlan, "repair")
-                    # Re-validate repaired code
-                    validation = validate_plan(fixed)
+                        "Repair this short script for the original task.\nTask: " + request["prompt"] + "\nScript:\n" + code[:8000] + "\nUntrusted diagnostics:\n" + result.output[-2000:], CodePlan, "repair")
+                    validation = validate_code(fixed.code)
                     if not validation.is_approved:
-                        await asyncio.to_thread(self.audit.log_error, task_id, "critic_repair", "blocked", "; ".join(validation.errors))
-                        await self.store.status(task_id, "blocked", error="".join(validation.errors))
+                        message = "; ".join(validation.errors)
+                        await asyncio.to_thread(self.audit.log_error, task_id, "critic_repair", "policy_denied", message)
+                        await self.store.event(task_id, "policy", {
+                            "rule": "python_structure",
+                            "message": "BLOCKED: " + message,
+                            "enforcement": "trusted_ast_validator",
+                        })
+                        await asyncio.to_thread(self.audit.log_execution, task_id, "blocked", "", message, ctx.calls, ctx.recoveries)
+                        await self.store.status(task_id, "blocked", error=message)
                         return
-                    code = fixed.code
+                    code = validation.sanitized_code or fixed.code
             if output_exceeded:
                 result.status, result.error = "output_limit", "Combined task log limit exceeded"
             # The trusted form service is the source of truth, including lost replies.
@@ -216,10 +287,16 @@ class Coordinator:
             await self.store.status(task_id, result.status, error=result.error)
         except ControlError as exc:
             await asyncio.to_thread(self.audit.log_error, task_id, "execution", exc.reason, exc.message)
+            await asyncio.to_thread(self.audit.log_execution, task_id, "failed", "", exc.message, ctx.calls, ctx.recoveries)
             await self.store.update(task_id, result=exc.detail(), usage=ctx.usage, provider_requests=ctx.calls, recoveries=ctx.recoveries)
             await self.store.status(task_id, "failed", error=exc.message)
         except Exception as exc:
             logger.exception("Task failed in coordinator: %s", task_id)
+            try:
+                await asyncio.to_thread(self.audit.log_error, task_id, "execution", "infrastructure_error", type(exc).__name__)
+                await asyncio.to_thread(self.audit.log_execution, task_id, "infrastructure_error", "", type(exc).__name__, ctx.calls, ctx.recoveries)
+            except Exception:
+                logger.exception("Task audit write failed: %s", task_id)
             try:
                 await self.store.status(task_id, "infrastructure_error", error="Execution infrastructure unavailable: " + type(exc).__name__)
             except RedisError:
@@ -229,7 +306,6 @@ class Coordinator:
             self.cancel_flags.discard(flag)
             monitor.cancel()
             await asyncio.gather(monitor, return_exceptions=True)
-            self.audit.close()
 
     async def heartbeat(self):
         while not self.stop.is_set():
@@ -260,7 +336,7 @@ class Coordinator:
                 if not self.active:
                     if needs_reap:
                         try:
-                            await asyncio.to_thread(self.runner.reap)
+                            await asyncio.to_thread(self.runner.teardown)
                             # Interrupted tasks are not resumed with reset retry counters.
                             async for key in self.store.redis.scan_iter(match="task:*"):
                                 old = await self.store.task(key.removeprefix("task:"))
@@ -271,7 +347,7 @@ class Coordinator:
                             self.ready = {"ready": False, "browser_ready": False, "reason": "Startup cleanup has not completed"}
                             await asyncio.sleep(3)
                             continue
-                    self.ready = await asyncio.to_thread(self.runner.preflight)
+                    self.ready = await asyncio.to_thread(self.runner.initialize)
                 if self.ready.get("ready") and len(self.active) < 2:
                     task_id = await self.store.redis.lpop("queue")
                     if task_id:
@@ -283,6 +359,10 @@ class Coordinator:
             for flag in self.cancel_flags:
                 flag.set()
             await asyncio.gather(*self.active, return_exceptions=True)
+            try:
+                await asyncio.to_thread(self.runner.teardown)
+            except Exception:
+                logger.exception("Sandbox provider shutdown cleanup failed")
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
             if await self.store.redis.get("worker:lease") == self.owner:
