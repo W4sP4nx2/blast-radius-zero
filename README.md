@@ -1,186 +1,163 @@
 # Blast Radius Zero
 
-**Containment-first agentic execution on Vultr.** Run useful Python tasks and bounded browser workflows, inspect real logs and artifacts, and approve a form submission before it creates a demo receipt.
+![Blast Radius Zero: containment-first agentic sandbox platform on Vultr](./assets/blast-radius-zero-header.svg)
 
-The project separates a trusted control plane from short-lived execution containers. Models propose work; deterministic code enforces networking, resource limits, deadlines, approval, and cleanup. Presets use stored plans and the same execution path without making model calls.
+> **Blast Radius Zero executes untrusted agent code and browser actions inside ephemeral, resource-capped containers on Vultr.** The current implementation uses Docker isolation; a Native execution adapter remains gated on a published sandbox interface and containment verification.
 
-> Deployment status: setup and target-host verification are pending. See [TESTING.md](TESTING.md) for recorded checks and [TEAM.md](TEAM.md) for contributor attribution.
+Blast Radius Zero is a containment-first execution layer built for the Vultr Agent Rush Hackathon 2026. Models can propose Python or bounded browser work, but deterministic control-plane code owns validation, networking, resource limits, human approval, evidence collection, and teardown.
 
-## What the app does
+**Demo:** [Open the protected Natively preview](https://2vwtsf9c9xczjseh37z4cyn6f-5173.preview.nativelyai.app/). The preview requires a current Natively authorization session; no expiring access token is stored in this repository.
 
-- **Code:** run custom Python, analyze a CSV, stream output, and download bounded generated artifacts.
-- **Browser:** capture approved public websites, return screenshots and source receipts, and visibly deny protected destinations.
-- **Human approval:** prepare a project-owned form, inspect its screenshot and exact values, then approve one submission within five minutes.
-- **Graceful degradation:** when inference is disabled, throttled, or unavailable, preserve the task and offer explicitly labelled zero-token presets.
+**Submission status:** the project was submitted to the Vultr Agent Rush Hackathon. Public deployment and live Vultr Inference verification remain pending. See [Testing and evidence](TESTING.md) for the exact verified scope.
 
-This is a hackathon prototype with a stated security boundary. Docker shares the host kernel; these controls are not a mathematical proof of zero host risk or a substitute for a security review.
+## Why it exists
 
-## Architecture on Vultr
+- **Process isolation:** submitted Python never runs in the API or on the host process.
+- **Secret hygiene:** provider credentials and the Docker socket are not passed to execution sandboxes.
+- **Resource hardening:** CPU, memory, PID, output, artifact, and deadline limits are enforced by trusted code and the container runtime.
+- **Controlled browser egress:** Playwright reaches allowlisted HTTPS destinations through a per-run proxy and host destination policy.
+- **Human approval:** form preparation and submission use separate browsers, an expiring approval, and a payload-bound permit.
+- **Ephemeral lifecycle:** task containers and networks are removed after success, failure, cancellation, or timeout.
+
+## Architecture
 
 ```text
-                         Vultr Cloud Compute: dedicated Ubuntu VM
- Internet ── HTTPS ──> Caddy ──> Next.js dashboard
-                         │
-                         └────> FastAPI control plane
-                                      │
-                                   Redis
-                            tasks, limits, approvals,
-                            bounded uploads/artifacts
-                                      │
-                             Trusted coordinator ──────> Vultr Inference
-                             (Docker socket owner)
-                                  /       \
-                   Python sandbox         Browser sandbox
-                   external network off   isolated internal network
-                   256 MiB / 0.5 CPU                │
-                   10-second deadline            Squid
-                                                 │
-                                    actual-destination host filtering
-                                          /               \
-                                  approved HTTPS       demo form only
-                                  public websites      dedicated :8443
+User request
+    │
+    ▼
+Web dashboard (Next.js) ───────► Core API (FastAPI) ───────► Redis
+                                      │                       tasks, quotas,
+                                      │                       approvals, artifacts
+                                      ▼
+                            Trusted coordinator ───────► Vultr Inference
+                             (Docker socket owner)        when enabled
+                                  │          │
+                                  ▼          ▼
+                         Python sandbox   Browser sandbox ──► Squid allowlist
+                         network disabled   isolated network   + host filtering
+                                  │          │
+                                  └────┬─────┘
+                                       ▼
+                              Evidence and teardown
 ```
 
-The [official Blast Radius Zero challenge](https://lablab.ai/ai-hackathons/vultr-hackathon) requires a Vultr-hosted web application and backend, Vultr Serverless Inference for agent calls, real isolated execution, and verifiable output. The Docker Engine is software running on Vultr Compute, not a separate Vultr-managed sandbox service.
+The intended production host is a dedicated Ubuntu 24.04 Vultr Cloud Compute VM. Docker is software on that VM, not a separate Vultr-managed sandbox. Read [Architecture and trust boundaries](docs/ARCHITECTURE.md) before changing execution or deployment policy.
 
-### Execution-provider boundary
+## Execution-provider boundary
 
-The coordinator selects an administrator-configured `BaseSandboxProvider`. `SANDBOX_RUNTIME=docker` is the default and delegates to the tested Docker implementation. `SANDBOX_RUNTIME=native` currently fails readiness rather than executing on the host or silently falling back: the public withnative/native release is a local SQLite/MCP context engine, not an isolated code/browser runtime. See [NATIVE_SPEC.md](NATIVE_SPEC.md) for the interface, provisioning path, and containment gates required before that mode can be enabled.
+The coordinator uses an administrator-selected `BaseSandboxProvider`. `SANDBOX_RUNTIME=docker` delegates to the tested Docker lifecycle. `SANDBOX_RUNTIME=native` currently fails readiness instead of executing on the host or silently falling back, because the public withnative/native interface is a local SQLite/MCP context engine rather than an isolated code or browser runtime.
 
-An append-only SQLite audit database records trusted stage transitions, output size/hash, and final outcomes on the worker-only `audit-data` volume. It does not retain task code or output bodies, is separate from temporary task state in Redis, and does not grant execution authority.
+An append-only SQLite audit database records trusted transitions, output size/hash, and final outcomes on a worker-only volume. It does not retain task code or output bodies. See [Native provider specification](NATIVE_SPEC.md) for provisioning and the gates required before Native execution can be enabled.
 
-### Execution walkthrough
+## Quick start
 
-1. **Admit.** FastAPI checks the session, CSRF token, request schema, and Redis quotas before enqueueing work. It accepts up to 2 MiB of UTF-8 CSV and rejects NUL bytes. New execution admission requires Redis.
-2. **Propose and validate.** The request selects Code or Browser. For live AI, the coordinator's versioned prompts ask Vultr Inference for a `CodePlan` containing only Python source or a `BrowserPlan` for one of the fixed operations. Pydantic rejects malformed output, unexpected fields, and blank or oversized Python before dispatch. The source limit is 65,536 UTF-8 bytes. Invalid plans can use the shared recovery allowance.
-3. **Execute and observe.** Only the coordinator has Docker access. It supplies the container settings and collects up to 1 MiB of combined logs and 8 MiB of artifacts per task. It checks artifact archives in memory and removes execution resources. The dashboard receives events through SSE. Python's external network restriction is enforced by Docker. Browser egress uses an exact Squid allowlist and independent host rules for actual destinations.
-4. **Authorize effects.** Form preparation captures the values, revision, and screenshot, then destroys the browser. Approval by the owning session authorizes a fresh browser to revalidate and submit. The form service checks the payload-bound permit and creates one receipt atomically. Repeated submissions return the recorded receipt.
+### Prerequisites
 
-The code prompt uses standard-library `csv` and the staged path `/tmp/input.csv`. Prompt instructions guide the model. Schema validation, quotas, networking, and approval run in trusted code. See [AGENT_REQUIREMENTS.md](AGENT_REQUIREMENTS.md) for the contracts and [CHECKLIST.md](CHECKLIST.md#4-main-storyboard--2-minutes-30-seconds) for the 2:30 recording sequence.
+- Ubuntu 24.04 or another Linux development host
+- Docker Engine 28+ with the Compose plugin
+- Python 3.13+ for core checks
+- Node.js 24+ for web checks
+- A Vultr Inference subscription key only if live AI is enabled
 
-### Execution policies
-
-| Control | Python | Browser |
-| --- | --- | --- |
-| Network | `network_mode="none"`; no external networking | Internal-only browser network; Squid allowlist plus host destination filtering |
-| Memory | 256 MiB; no additional swap allowance | 512 MiB |
-| CPU / PID limit | 0.5 CPU / 64 PIDs | 1 CPU / 256 PIDs |
-| Deadline | 10 seconds | 30 seconds per stage |
-| Identity | Non-root; dropped capabilities; no-new-privileges | Non-root; Chromium sandbox; dropped capabilities |
-| Filesystem | Read-only root with bounded scratch storage | Read-only root with bounded scratch and private shared memory |
-| Lifecycle | Explicit kill at deadline; removal in `finally` | Fresh container/network per stage; cleanup on every path |
-
-No sandbox receives host/provider API credentials or the Docker socket. Image/runtime environment defaults remain. Network mode `none` retains loopback; it disables external connectivity rather than every possible socket operation.
-
-## Target-host quick start
-
-Full containment is targeted at a dedicated **Ubuntu 24.04 Linux host with Docker Engine and the Docker Compose plugin**. Configure public DNS names for the application and demo form to the VM's public IPv4 address. Allow HTTPS ports 443 and 8443, plus port 80 for certificate issuance, through the Vultr firewall. Restrict SSH to your administration source.
-
-Run from the repository root. Read the scripts before applying host policy; they alter BRZ-owned firewall chains and leave Docker-managed chains intact.
+### Configure and build
 
 ```bash
+git clone https://github.com/W4sP4nx2/blast-radius-zero.git
+cd blast-radius-zero
 cp .env.example .env
 chmod 600 .env
-# Edit .env: APP_DOMAIN, DEMO_DOMAIN, DEMO_IP, and approved BROWSER_DOMAINS.
-# For live AI, set AI_ENABLED=true, VULTR_API_KEY, and the text/vision model IDs.
 
+# Edit APP_DOMAIN, DEMO_DOMAIN, DEMO_IP, and BROWSER_DOMAINS.
+# Leave AI_ENABLED=false unless Vultr Inference is configured.
 docker compose --profile images build
-
-# Replace this documentation address with your VM's actual public IPv4.
-sudo ./deploy/install-firewall.sh --demo-ip 203.0.113.10 --dns 1.1.1.1
-
 docker compose up -d
+```
+
+For a public VM, install the checked-in host egress policy before enabling browser tasks, then run preflight:
+
+```bash
+sudo ./deploy/install-firewall.sh --demo-ip YOUR_VM_PUBLIC_IP --dns 1.1.1.1
 ./deploy/preflight.sh
 ```
 
-Open `https://YOUR_APP_DOMAIN` after Caddy has obtained certificates and preflight succeeds. The dedicated demo listener is `https://YOUR_DEMO_DOMAIN:8443`. Do not use the documentation IP in a live configuration.
+The firewall script changes BRZ-owned host policy. Review it before running it. Full DNS, TLS, local-development, and verification instructions are in [Setup and operation](docs/SETUP.md).
 
-The default configuration keeps AI disabled. Presets still execute real work when required runtime dependencies are ready. Live judging evidence must also demonstrate the configured Vultr Inference path. `VULTR_API_KEY` means the Inference subscription key here, not a general cloud-management key. Use model IDs your subscription actually exposes, including a vision-capable model for screenshot verification.
-
-The commands above are the deployment procedure; target-host execution and outcomes are recorded in [TESTING.md](TESTING.md). A Docker CLI installation without a running daemon is insufficient. Browser execution remains unavailable if the host destination policy cannot be verified.
-
-### Local development checks
-
-Backend checks use Python 3.13 (pinned in `.python-version`) and [uv](https://docs.astral.sh/uv/). `pyproject.toml` declares the pinned direct dependencies and `uv.lock` pins the full transitive set; the backend image, CI and local environments all install from that lockfile.
+### Validate without deploying
 
 ```bash
-uv venv                # creates .venv in the repository root
-uv sync --locked       # installs runtime + dev groups exactly as locked
-uv run pytest backend/tests -m 'not integration'
-```
+uv venv
+uv sync --locked
+uv run --locked pytest core/tests -m 'not integration' --fail-on-skip
 
-To change a dependency, edit its pin in `pyproject.toml`, run `uv lock`, and commit both files. `--locked` makes CI and the image build fail when they disagree.
-
-Frontend checks:
-
-```bash
-cd frontend
+cd web
 npm ci
+npm run typecheck
 npm run build
 ```
 
-For interactive development, run Redis, set `REDIS_URL` and `APP_ORIGIN=http://localhost:3000`, start the backend from `backend/` using `uv run uvicorn main:app --host 127.0.0.1 --port 8000`, and run `npm run dev` from `frontend/`. The coordinator is a separate process (`uv run python -m brz.worker` from `backend/`). Full browser containment requires the supported Linux host policy; do not weaken it to make a local preview work.
+`pyproject.toml` contains pinned direct dependencies and `uv.lock` pins the transitive environment. CI and the core image use `--locked`, so dependency metadata drift fails rather than resolving silently.
 
-## Known Local Constraints
+## Execution patterns
 
-The local browser proxy build stopped with Docker storage I/O errors when the host had about 191 MiB free. All 100 application tests passed, including the 21 AI and coordinator tests captured in the focused rerun. Twelve real Python Docker checks passed locally and on Ubuntu CI. Full browser containment and live Vultr Inference remain pending on the target host. [Focused test output](verification/ai-focused-2026-11-04.txt) · [Verification status](TESTING.md#verification-status) · [Passing GitHub Actions run](https://github.com/W4sP4nx2/blast-radius-zero/actions/runs/41736343238)
+### Sandboxed code
 
-GitHub Actions installs from `uv.lock` and runs application tests, frontend typecheck and build, a backend image build with an import smoke check, and real Python Docker containment on every PR targeting `main` or `master` and on pushes to either branch, including documentation-only changes. A skip or expected failure among selected pytest cases fails the check. Browser containment and live inference are verified separately on the target Vultr host. [Workflow](.github/workflows/ci.yml) · [Release verification](TESTING.md#release-verification)
+1. A user submits Python directly or asks the model to propose it.
+2. Pydantic validates the bounded plan before dispatch.
+3. The coordinator starts an unprivileged container with no external network, a read-only root filesystem, and fixed resource limits.
+4. Logs and bounded artifacts are returned, then the container is removed.
 
-## Lightweight inference controls
+### Sandboxed browser automation
 
-There is no lifetime dollar ledger. The public demo uses expiring request counters, model-output ceilings, two concurrent model calls, at most two recovery attempts, and at most five provider requests per task. Five consecutive provider timeouts/server errors open a 60-second circuit breaker. [AGENTS.md](AGENTS.md) contains the complete limits.
+1. The model selects from fixed Playwright operations; it cannot submit arbitrary JavaScript.
+2. Chromium runs in an isolated container network through Squid.
+3. Screenshots, source URLs, and trusted policy events become task evidence.
+4. Side effects require explicit approval and a fresh-browser revalidation step.
 
-The application exposes provider-reported usage for visibility. Monitor actual credit consumption through Vultr. Presets are labelled `source: "preset"`, use zero provider requests, and retain sandbox capacity and approval requirements.
+## Known limitations and design trade-offs
 
-## API shape
+| Area | Current boundary | Mitigation or direction |
+| --- | --- | --- |
+| Cold-start latency | Docker image and container startup adds initial overhead. No alternative execution runtime is verified. | Measure representative workloads; evaluate another provider only after it passes the same containment contract. |
+| State persistence vs. zero trust | Sandbox filesystem changes are destroyed after each stage by design. | Stream approved artifacts to bounded external storage before teardown. |
+| Browser headless constraints | Heavy WebGL, canvas, GPU, and GUI workflows can fail or render incompletely in containerized Chromium. | Keep workflows bounded; use explicit viewport/framebuffer settings and fail closed on missing evidence. Xvfb is a possible compatibility path, not current verified behavior. |
+| Host-kernel boundary | Docker containers share the Vultr VM kernel. | Use non-root identities, dropped capabilities, seccomp, read-only filesystems, host egress controls, and a dedicated VM. This is not a proof of zero host risk. |
+| Browser scope | The browser supports fixed, allowlisted operations rather than arbitrary authenticated browsing. | Account logins, payments, purchases, and third-party form submissions remain out of scope. |
+| Scale and availability | One coordinator owns process-local concurrency controls. | Do not add workers until admission and leases are made distributed. |
+| Live service status | Public HTTPS deployment, browser host-policy checks, and live Vultr Inference remain unverified. | Run `deploy/preflight.sh` and retain sanitized target-host evidence before changing this status. |
 
-`GET /api/session` establishes the anonymous session and returns a CSRF token. Send that token as `X-CSRF-Token` for mutations. Tasks, uploads, approvals, and artifacts belong to that session.
+## Repository structure
 
-`POST /api/execute` accepts one of:
-
-```json
-{"kind":"code","code_payload":"print('Containment System Active', flush=True)"}
+```text
+blast-radius-zero/
+├── core/          # Trusted API, planning, orchestration, policy, and tests
+├── sandbox/       # Python and Playwright runtime images and profiles
+├── web/           # Next.js dashboard
+├── deploy/        # Vultr-host TLS, proxy, firewall, and preflight policy
+├── scripts/       # Pinned host provisioning helpers
+├── docs/          # Architecture, setup, and participant documentation
+├── verification/  # Sanitized evidence from completed checks
+├── NATIVE_SPEC.md # Native provider status and promotion gates
+├── .env.example   # Safe configuration template; no credentials
+├── compose.yaml   # Local and single-host service topology
+└── README.md      # Project overview, status, and quick start
 ```
 
-```json
-{"kind":"task","pattern":"browser","prompt":"Capture the top three Hacker News headlines with receipts"}
-```
+## Security configuration
 
-```json
-{"kind":"preset","preset_id":"<id returned by GET /api/presets>"}
-```
+Copy `.env.example`; never commit `.env`, provider tokens, preview authorization tokens, SSH keys, or private key files. The application reads `VULTR_API_KEY` only in the trusted core service. `SANDBOX_RUNTIME=native` is a fail-closed scaffold and does not execute tasks.
 
-The response is `202` with a `task_id`. Fetch status at `/api/tasks/{id}` and real SSE events at `/api/tasks/{id}/events`. CSV uploads use `/api/uploads`; task cancellation, artifact downloads, and session-bound approval have dedicated endpoints. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the workflow and contracts.
+If a real credential has ever been committed, deleting the file in a new commit is insufficient. Revoke and rotate the credential first, then rewrite history with a reviewed tool such as `git filter-repo` and coordinate a fresh clone for every contributor.
 
-## Demonstration sequence
+## Documentation
 
-[60-second verification walkthrough](https://github.com/W4sP4nx2/blast-radius-zero/releases/download/verification-2026-11-04/brz-verification-60s.mp4) shows the retained local and Ubuntu CI results. Record the target-host demonstration below after deployment.
+- [Native provider specification](NATIVE_SPEC.md)
+- [Architecture and trust boundaries](docs/ARCHITECTURE.md)
+- [Setup and operation](docs/SETUP.md)
+- [Implementation contract](IMPLEMENTATION.md)
+- [Testing and retained evidence](TESTING.md)
+- [Security and demo checklist](CHECKLIST.md)
+- [Scaling and SDLC](SCALING_AND_SDLC.md)
 
-1. Run CSV analysis and show logs arriving before completion plus a generated artifact.
-2. Attempt an external Python request and show the observed denial under network mode `none`.
-3. Capture Hacker News and display real screenshot evidence and source links. Headline-only evidence is labelled; linked article text is not invented.
-4. Attempt Vultr metadata access and display trusted denial evidence without showing metadata content.
-5. Prepare the demo form, inspect the fields and screenshot, approve, and show one receipt.
-6. Disable live inference and run a clearly labelled preset to show graceful degradation.
+## License
 
-## Repository guide
-
-| Location | Purpose |
-| --- | --- |
-| `backend/brz/` | API, task state, AI controls, trusted coordinator, sandbox lifecycle, demo form |
-| `backend/python_sandbox/` | Minimal non-root Python execution image |
-| `backend/browser_sandbox/` | Fixed Playwright operations and browser image |
-| `frontend/` | Next.js dashboard, terminal, screenshots, approvals |
-| `compose.yaml`, `deploy/` | Service deployment, Squid/Caddy configuration, host policy, preflight |
-| [AGENTS.md](AGENTS.md) | Contributor boundaries and AI controls |
-| [AGENT_REQUIREMENTS.md](AGENT_REQUIREMENTS.md) | Agent capabilities, orchestration handoffs and PR acceptance limits |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Interfaces and containment implementation |
-| [TESTING.md](TESTING.md) | Expected behavior and observed evidence |
-| [TEAM.md](TEAM.md) | Participant roles and contribution templates |
-| [METRICS_AND_RUBRICS.md](METRICS_AND_RUBRICS.md) | Official judging criteria mapped to evidence |
-| [SCALING_AND_SDLC.md](SCALING_AND_SDLC.md) | Current deployment boundary and future work |
-| [CHECKLIST.md](CHECKLIST.md) | Missing work, corrected claims, test gates and two recording storyboards |
-| [Local verification](verification/local-2026-11-04.md) | Actual local checks and explicitly unverified target controls |
-
-Account logins, payments, third-party form submissions, distributed execution, and enterprise tenancy guarantees are outside this version.
+[MIT](LICENSE). Built for the Vultr Agent Rush Hackathon 2026.

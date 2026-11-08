@@ -16,7 +16,7 @@ For that reason, setting `SANDBOX_RUNTIME=native` reports the worker unready and
 
 ## Provider contract
 
-`backend/brz/sandbox_provider.py` defines four operations:
+`core/brz/sandbox_provider.py` defines four operations:
 
 - `initialize()` verifies provider prerequisites and returns code/browser readiness.
 - `exec_code()` executes bounded Python with optional staged CSV data, streamed events, and cancellation.
@@ -66,6 +66,6 @@ Native MCP uses child-process stdio rather than a daemon socket. Do not invent a
 
 ## Measurements
 
-`backend/tests/test_native_latency.py` optionally measures cold startup plus an `engine_info` round trip when `BRZ_NATIVE_INTEGRATION=1`. That number is **MCP context-engine startup latency**, not sandbox cold-start latency. There is currently no honest Native-vs-Docker execution comparison because Native does not execute code in the published interface.
+`core/tests/test_native_latency.py` optionally measures cold startup plus an `engine_info` round trip when `BRZ_NATIVE_INTEGRATION=1`. That number is **MCP context-engine startup latency**, not sandbox cold-start latency. There is currently no honest Native-vs-Docker execution comparison because Native does not execute code in the published interface.
 
 Content was rephrased from the linked Native self-hosting documentation for licensing compliance.

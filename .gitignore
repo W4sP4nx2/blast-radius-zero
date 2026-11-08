@@ -1,6 +1,17 @@
+# Local configuration and credentials
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -15,8 +26,15 @@ playwright-report/
 .DS_Store
 verification/*.json
 !verification/example.json
-# Local Native MCP source/data and SQLite sidecars
-/backend/native_engine/
+
+# Agent Workspace Runtime Caches & Local State
+.native/
+*.session.json
+logs/
+/tmp/
+
+# Local Native MCP source/data and SQLite runtime files
+/core/native_engine/
 /native-data/
 *.db
 *.db-shm

@@ -24,5 +24,5 @@ dev = [
 ]
 
 [tool.uv]
-# The backend runs from source in backend/ (module `brz`); nothing is built or installed.
+# The trusted core runs from source in core/ (module `brz`); nothing is built or installed.
 package = false

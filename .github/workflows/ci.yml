@@ -21,19 +21,18 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: true
-      # --locked fails if uv.lock no longer matches pyproject.toml.
       - run: uv sync --locked
       - name: Validate deployment scripts
         run: bash -n scripts/deploy-vultr.sh deploy/preflight.sh deploy/install-firewall.sh
-      - name: Backend application tests
-        run: uv run --locked pytest backend/tests -m 'not integration' --fail-on-skip -v
+      - name: Core application tests
+        run: uv run --locked pytest core/tests -m 'not integration' --fail-on-skip -v
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Frontend typecheck and build
-        working-directory: frontend
+          cache-dependency-path: web/package-lock.json
+      - name: Web typecheck and build
+        working-directory: web
         run: |
           npm ci
           npm run typecheck
@@ -55,14 +54,14 @@ jobs:
       - run: uv sync --locked
       - name: Report available disk space
         run: df -h .
-      - name: Build backend image from uv.lock
+      - name: Build core image from uv.lock
         run: |
-          docker build -f backend/Dockerfile -t brz-backend:ci .
-          docker run --rm --read-only brz-backend:ci python -c "import brz.api, brz.worker, brz.form_service"
-          docker run --rm --read-only brz-backend:ci uvicorn --version
+          docker build -f core/Dockerfile -t brz-core:ci .
+          docker run --rm --read-only brz-core:ci python -c "import brz.api, brz.worker, brz.form_service"
+          docker run --rm --read-only brz-core:ci uvicorn --version
       - name: Build Python sandbox
-        run: docker build -t brz-python-sandbox:local backend/python_sandbox
+        run: docker build -t brz-python-sandbox:local sandbox/python
       - name: Python Docker containment (BRZ_INTEGRATION=1)
         env:
           BRZ_INTEGRATION: '1'
-        run: uv run --locked pytest backend/tests -m 'integration and not browser_integration' --fail-on-skip -v
+        run: uv run --locked pytest core/tests -m 'integration and not browser_integration' --fail-on-skip -v

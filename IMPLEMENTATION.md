@@ -18,7 +18,7 @@ This guide describes the application's intended enforcement points and operating
 
 One coordinator owns the two-model-call semaphore and the two-task execution limit, including at most one browser stage. A Redis ownership lease rejects a second coordinator. Do not increase worker counts without implementing distributed execution admission.
 
-`SANDBOX_RUNTIME` is administrator configuration. `docker` delegates through `DockerSandboxProvider` to the existing lifecycle below. `native` deliberately reports unready because the published Native MCP interface cannot enforce these execution controls. It never falls back to a host subprocess. [NATIVE_SPEC.md](NATIVE_SPEC.md) records the exact status and promotion gates.
+`core/brz/sandbox_provider.py` defines the provider contract. `docker` delegates through `DockerSandboxProvider` to the existing lifecycle below. `native` deliberately reports unready because the published Native MCP interface cannot enforce these execution controls. It never falls back to a host subprocess. [NATIVE_SPEC.md](NATIVE_SPEC.md) records the exact status and promotion gates.
 
 Redis is a bounded prototype blob/state store. Uploads and artifacts expire after 15 minutes, and admission must reject pressure rather than evict approval/counter state or allow unbounded memory growth. Provider secrets are administrator configuration and are never exposed through public health or task responses.
 
