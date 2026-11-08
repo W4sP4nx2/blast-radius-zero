@@ -25,7 +25,7 @@ Never replace these entries with “passed” based only on source inspection. W
 | --- | --- | --- | --- | --- |
 | Python execution | Run `print('Containment System Active', flush=True)` | Exit succeeds; actual output is returned | Not yet recorded | — |
 | CSV analysis | Run the CSV preset with the sample data, then an uploaded CSV | Deterministic statistics and bounded downloadable artifacts | Sample and uploaded input passed local Docker checks. Real sample HTTP smoke downloaded JSON and CSV | [Local report, 4 Nov 2026](verification/local-2026-11-04.md). Repeat on Vultr |
-| Live streaming | Print, sleep briefly, and print again | First output arrives before task completion; reconnection does not start another task | Real CSV smoke received stdout while running. SSE replay covered by local API test | [Local report](verification/local-2026-11-04.md), [API tests](backend/tests/test_api.py). Repeat over public HTTPS |
+| Live streaming | Print, sleep briefly, and print again | First output arrives before task completion; reconnection does not start another task | Real CSV smoke received stdout while running. SSE replay covered by local API test | [Local report](verification/local-2026-11-04.md), [API tests](core/tests/test_api.py). Repeat over public HTTPS |
 | Browser receipts | Run the Hacker News preset | Actual screenshot, extracted entries, URLs, and timestamps | Not yet recorded | — |
 | Allowed research | Visit an administrator-approved HTTPS destination | Browser works through the proxy | Not yet recorded | — |
 | Blocked research | Request an unapproved domain | Clear denial; no fabricated source summary | Not yet recorded | — |
@@ -112,16 +112,16 @@ The success criterion is that protected sentinel services receive **zero connect
 | --- | --- | --- | --- | --- |
 | Counter concurrency | Admit concurrent requests at each boundary | Limits hold across requests; counters expire | Not yet recorded | — |
 | Queue capacity | Fill both execution slots and the waiting queue | Excess request receives structured capacity rejection | Not yet recorded | — |
-| Bounded recovery | Repeatedly return invalid JSON or eligible code errors | At most two additional recoveries and five provider requests | Local provider and runner-double checks passed | [AI tests](backend/tests/test_ai.py), [coordinator tests](backend/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
-| Generated Python source boundary | Return 65,538 UTF-8 bytes, whitespace-only source, then exactly 65,536 bytes | Two rejected plans use the shared recovery allowance. The valid boundary plan is accepted | Passed with a stub provider | [AI test](backend/tests/test_ai.py), [local regression run](verification/local-2026-11-04.md#prompt-and-schema-regression) |
-| No policy repair | Return denial, timeout, or OOM | No automatic repair call | Local runner-double checks passed | [Coordinator tests](backend/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
-| Circuit opens | Return five consecutive provider timeouts or server errors | Circuit pauses calls for 60 seconds | Five stubbed 500s opened the circuit; reported TTL was at most 60 seconds | [AI tests](backend/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
-| Circuit recovery | Send concurrent requests when the pause ends | One probe; success closes, failure reopens | Immediate second admission rejected in test; long-running probe overlap after the 30-second lease expires remains unverified | [AI tests](backend/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
-| Provider throttling | Return `429` with `Retry-After` | Retry timing respected without an unbounded retry loop | Stubbed `429` applied cooldown without recording an outage | [AI tests](backend/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
-| Invalid credentials | Return an authentication failure | Live AI disabled until configuration is corrected | Stubbed `401` disabled live AI without retry | [AI tests](backend/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
+| Bounded recovery | Repeatedly return invalid JSON or eligible code errors | At most two additional recoveries and five provider requests | Local provider and runner-double checks passed | [AI tests](core/tests/test_ai.py), [coordinator tests](core/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
+| Generated Python source boundary | Return 65,538 UTF-8 bytes, whitespace-only source, then exactly 65,536 bytes | Two rejected plans use the shared recovery allowance. The valid boundary plan is accepted | Passed with a stub provider | [AI test](core/tests/test_ai.py), [local regression run](verification/local-2026-11-04.md#prompt-and-schema-regression) |
+| No policy repair | Return denial, timeout, or OOM | No automatic repair call | Local runner-double checks passed | [Coordinator tests](core/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
+| Circuit opens | Return five consecutive provider timeouts or server errors | Circuit pauses calls for 60 seconds | Five stubbed 500s opened the circuit; reported TTL was at most 60 seconds | [AI tests](core/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
+| Circuit recovery | Send concurrent requests when the pause ends | One probe; success closes, failure reopens | Immediate second admission rejected in test; long-running probe overlap after the 30-second lease expires remains unverified | [AI tests](core/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
+| Provider throttling | Return `429` with `Retry-After` | Retry timing respected without an unbounded retry loop | Stubbed `429` applied cooldown without recording an outage | [AI tests](core/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
+| Invalid credentials | Return an authentication failure | Live AI disabled until configuration is corrected | Stubbed `401` disabled live AI without retry | [AI tests](core/tests/test_ai.py), [local report](verification/local-2026-11-04.md) |
 | Redis unavailable | Disconnect required shared state | New execution rejected; limits are not bypassed | Not yet recorded | — |
 | Explicit fallback | Disable AI and submit a custom request | Structured reason and preset choices; custom prompt is preserved | Not yet recorded | — |
-| Zero model calls | Run each preset with provider-client instrumentation | Zero provider requests for that task; real sandbox execution still occurs | Runner-double test passed. Real local CSV smoke recorded `provider_requests=0`. Full preset matrix awaits the target host | [Coordinator tests](backend/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
+| Zero model calls | Run each preset with provider-client instrumentation | Zero provider requests for that task; real sandbox execution still occurs | Runner-double test passed. Real local CSV smoke recorded `provider_requests=0`. Full preset matrix awaits the target host | [Coordinator tests](core/tests/test_worker.py), [local report](verification/local-2026-11-04.md) |
 
 Provider dashboards can corroborate usage, but aggregate billing is not sufficient to prove that one task made zero calls. Use task-level request instrumentation or a test provider client.
 
@@ -135,19 +135,19 @@ CI runs application validation and Python Docker containment independently on ep
 
 ```bash
 # Local application tests; no Docker containment claim.
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -m 'not integration' -q
+PYTHONPATH=core .venv/bin/python -m pytest core/tests -m 'not integration' -q
 
 # Focused provider and coordinator tests. Uses local stubs and doubles.
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_ai.py backend/tests/test_worker.py -v
+PYTHONPATH=core .venv/bin/python -m pytest core/tests/test_ai.py core/tests/test_worker.py -v
 
 # Isolated Linux Docker host. This is the Python containment scope used in CI.
-docker build -t brz-python-sandbox:local backend/python_sandbox
-PYTHONPATH=backend BRZ_INTEGRATION=1 .venv/bin/python -m pytest backend/tests \
+docker build -t brz-python-sandbox:local sandbox/python
+PYTHONPATH=core BRZ_INTEGRATION=1 .venv/bin/python -m pytest core/tests \
   -m 'integration and not browser_integration' --fail-on-skip -v
 
 # Run the browser capture and metadata probes after firewall, DNS and TLS setup.
-PYTHONPATH=backend BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
-  .venv/bin/python -m pytest backend/tests -m browser_integration --fail-on-skip -v
+PYTHONPATH=core BRZ_INTEGRATION=1 BRZ_BROWSER_INTEGRATION=1 \
+  .venv/bin/python -m pytest core/tests -m browser_integration --fail-on-skip -v
 ```
 
 The suite is the checked-in automation subset. The full browser DNS-rebinding, controlled-sentinel, proxy-death, host-firewall fault and live-inference matrix above still requires a target-host release session. The integration fixture removes BRZ-labelled resources; never run it alongside production jobs.

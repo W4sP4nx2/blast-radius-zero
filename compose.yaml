@@ -1,12 +1,12 @@
 name: blast-radius-zero
 
-x-backend: &backend
-  image: brz-backend:local
+x-core: &core
+  image: brz-core:local
   build:
     context: .
-    dockerfile: backend/Dockerfile
+    dockerfile: core/Dockerfile
   env_file: .env
-  environment: &backend-env
+  environment: &core-env
     REDIS_URL: redis://redis:6379/0
     APP_ORIGIN: https://${APP_DOMAIN}
     DEMO_URL: https://${DEMO_DOMAIN}:8443
@@ -42,30 +42,30 @@ services:
       retries: 10
 
   api:
-    <<: *backend
+    <<: *core
     command: [uvicorn, main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --proxy-headers, --forwarded-allow-ips, '172.29.0.1']
     ports: ['127.0.0.1:8000:8000']
 
   worker:
-    <<: *backend
+    <<: *core
     # The coordinator is trusted and daemon-privileged. No public API has this mount.
     user: '0:0'
     command: [python, -m, brz.worker]
     volumes: [/var/run/docker.sock:/var/run/docker.sock]
 
   form:
-    <<: *backend
+    <<: *core
     command: [uvicorn, brz.form_service:app, --host, 0.0.0.0, --port, '8001', --workers, '1']
     ports: ['127.0.0.1:8001:8001']
     environment:
-      <<: *backend-env
+      <<: *core-env
       AI_ENABLED: 'false'
       VULTR_API_KEY: ''
 
-  frontend:
-    image: brz-frontend:local
+  web:
+    image: brz-web:local
     build:
-      context: ./frontend
+      context: ./web
       args:
         API_INTERNAL_URL: http://api:8000
     environment:
@@ -100,13 +100,13 @@ services:
   python-image:
     profiles: [images]
     image: brz-python-sandbox:local
-    build: ./backend/python_sandbox
+    build: ./sandbox/python
     entrypoint: [/bin/true]
 
   browser-image:
     profiles: [images]
     image: brz-browser-sandbox:local
-    build: ./backend/browser_sandbox
+    build: ./sandbox/browser
     entrypoint: [/bin/true]
 
   proxy-image:

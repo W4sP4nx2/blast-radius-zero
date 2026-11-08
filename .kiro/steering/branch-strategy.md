@@ -40,10 +40,10 @@ Local checks before merging a `feat/*` branch:
 
 ```bash
 # Policy engine unit tests (required by the merge condition above)
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/test_policy.py -q
+PYTHONPATH=core .venv/bin/python -m pytest core/tests/test_policy.py -q
 
 # Full application suite, as run by CI
-PYTHONPATH=backend .venv/bin/python -m pytest backend/tests -m 'not integration' --fail-on-skip -q
+PYTHONPATH=core .venv/bin/python -m pytest core/tests -m 'not integration' --fail-on-skip -q
 ```
 
 CI also runs these tests and Python Docker containment on every PR targeting `main` (see `TESTING.md`).

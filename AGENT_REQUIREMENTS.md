@@ -39,7 +39,7 @@ Do not add a lifetime dollar ledger or price reservations. Provider-reported usa
 
 - Version prompts, schemas and preset plans in Git alongside application code.
 - Validate generated JSON against strict Pydantic contracts before dispatch. Structural validity does not establish that generated code is safe.
-- The request selects the execution pattern. The code prompt asks for `{"code":"…"}`. The browser prompt asks for `research` or `prepare_form` using the `BrowserPlan` fields. The Python byte bound applies to generated plans and direct submissions. [Prompts](backend/brz/ai.py) · [Schemas](backend/brz/models.py)
+- The request selects the execution pattern. The code prompt asks for `{"code":"…"}`. The browser prompt asks for `research` or `prepare_form` using the `BrowserPlan` fields. The Python byte bound applies to generated plans and direct submissions. [Prompts](core/brz/ai.py) · [Schemas](core/brz/models.py)
 - Treat malformed or truncated output as a failed attempt. Any recovery consumes the same task-level allowances in Section 2.
 - Permit code repair only for eligible ordinary diagnostics. The current implementation considers failed live-AI code with `SyntaxError`, `IndentationError` or `NameError` diagnostics; it does not provide a generic retry for every failure.
 - Do not automatically repair policy denials, timeout, OOM/resource exhaustion or invalid provider credentials.

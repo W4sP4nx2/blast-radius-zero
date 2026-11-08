@@ -1,7 +1,7 @@
 """UI contract checks using intercepted API responses, never simulated production runs.
 
 Run against a local Next.js server with:
-  BRZ_UI_URL=http://127.0.0.1:3300 python frontend/tests/workbench_e2e.py
+  BRZ_UI_URL=http://127.0.0.1:3300 python web/tests/workbench_e2e.py
 Requires the Python playwright package and an installed Chromium browser.
 """
 
