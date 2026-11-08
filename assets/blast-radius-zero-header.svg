@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1728" height="960" viewBox="0 0 1728 960" role="img" aria-labelledby="title desc">
+  <title id="title">Blast Radius Zero</title>
+  <desc id="desc">Containment-first agentic sandbox platform on Vultr, styled after the supplied cyan and blue hackathon banner.</desc>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="42%" r="55%">
+      <stop offset="0" stop-color="#083d4a" stop-opacity="0.92"/>
+      <stop offset="0.45" stop-color="#061820" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#03070c"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#27e7ef"/>
+      <stop offset="1" stop-color="#2589ff"/>
+    </linearGradient>
+    <pattern id="grid" width="96" height="96" patternUnits="userSpaceOnUse">
+      <path d="M96 0H0V96" fill="none" stroke="#8dd8e8" stroke-opacity="0.08" stroke-width="1"/>
+    </pattern>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+    <filter id="textGlow" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1728" height="960" fill="url(#glow)"/>
+  <rect width="1728" height="960" fill="url(#grid)"/>
+  <rect x="76" y="0" width="1" height="960" fill="#a8dce8" opacity="0.1"/>
+  <rect x="1651" y="0" width="1" height="960" fill="#a8dce8" opacity="0.1"/>
+
+  <circle cx="864" cy="289" r="150" fill="#13ddea" opacity="0.13" filter="url(#soft)"/>
+  <g transform="translate(864 286)" fill="none" stroke-linejoin="round">
+    <path d="M0-112 94-57 94 57 0 112-94 57-94-57Z" stroke="#30b9ff" stroke-width="7"/>
+    <path d="M0-91 75-47 75 47 0 91-75 47-75-47Z" stroke="#24e5e9" stroke-width="3" stroke-dasharray="13 9" opacity="0.75"/>
+    <circle r="45" stroke="#30e9ed" stroke-width="6"/>
+    <circle r="10" fill="#31e8ef" stroke="none"/>
+    <path d="M0-75V-52M0 52V75M-66 0H-50M50 0H66" stroke="#72f4f8" stroke-width="3"/>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" letter-spacing="3">
+    <circle cx="98" cy="53" r="8" fill="#26aab8"/>
+    <text x="125" y="61" font-size="24" fill="#27c9dc">VULTR AGENT RUSH HACKATHON 2026</text>
+    <rect x="1150" y="27" width="487" height="55" rx="28" fill="#07111d" stroke="#243c5f" stroke-width="2"/>
+    <text x="1182" y="63" font-size="22" fill="#a8b6cb">TRACK 01 • BLAST RADIUS ZERO</text>
+  </g>
+
+  <text x="864" y="554" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="128" font-weight="900" letter-spacing="6" fill="#f5fbff" filter="url(#textGlow)">BLAST RADIUS</text>
+  <text x="864" y="684" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="132" font-weight="900" letter-spacing="13" fill="url(#blue)" filter="url(#textGlow)">ZERO</text>
+  <text x="864" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="600" fill="#d7e0e9">Containment-First Agentic Sandbox Platform on Vultr</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#d3ddea">
+    <g transform="translate(282 818)"><rect width="345" height="64" rx="32" fill="#0b1526" stroke="#203a62" stroke-width="2"/><circle cx="43" cy="32" r="11" fill="#2be2ee"/><circle cx="43" cy="32" r="4" fill="#0b1526"/><text x="72" y="39">Zero-Trust Sandbox</text></g>
+    <g transform="translate(660 818)"><rect width="410" height="64" rx="32" fill="#0b1526" stroke="#203a62" stroke-width="2"/><text x="32" y="40" fill="#2be2ee">&lt;/&gt;</text><text x="82" y="39">Code &amp; Browser Execution</text></g>
+    <g transform="translate(1103 818)"><rect width="326" height="64" rx="32" fill="#0b1526" stroke="#203a62" stroke-width="2"/><path d="M43 42c-10 0-17-6-17-14 0-7 5-12 12-13 3-9 17-10 22-2 8 0 14 6 14 14s-6 15-15 15Z" fill="#2be2ee"/><text x="87" y="39">Powered by Vultr</text></g>
+  </g>
+</svg>

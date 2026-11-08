@@ -154,7 +154,7 @@ class SandboxRunner:
         if browser:
             profile = Path(__file__).with_name('seccomp_profile.json')
             if not profile.exists():
-                profile = Path(__file__).parent.parent / 'browser_sandbox' / 'seccomp_profile.json'
+                profile = Path(__file__).resolve().parents[2] / 'sandbox' / 'browser' / 'seccomp_profile.json'
             options['security_opt'].append('seccomp=' + json.dumps(json.loads(profile.read_text())))
         return options
 
